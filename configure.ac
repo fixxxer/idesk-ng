@@ -103,13 +103,13 @@ AC_MSG_CHECKING([whether to include Startup Notification ])
 AC_ARG_ENABLE(
   libsn, [  --enable-libsn        include code for LIBSN [default=no]])
 
-if test -n "$enable_libsn"; then
+AS_IF([test -n "$enable_libsn"],[
                     PKG_CHECK_MODULES(LIBSN, libstartup-notification-1.0 >= 0.5)
                     AC_MSG_RESULT([yes])
                     STARTUP="-DHAVE_STARTUP_NOTIFICATION -DSN_API_NOT_YET_FROZEN=1",
-else
+],[
   AC_MSG_RESULT([no])
-fi
+])
 
 AM_CONDITIONAL(HAVE_STARTUP_NOTIFICATION, test x$LIBSN = xtrue)
 AC_SUBST(STARTUP)
