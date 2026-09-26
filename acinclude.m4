@@ -181,16 +181,7 @@ if test x$xft_prefix != x ; then
       PKG_CONFIG=$xft_prefix/bin/pkg-config	  
    fi
 fi
-
-AC_PATH_PROG(PKG_CONFIG, pkg-config, no)
-if test "x$PKG_CONFIG" = "xno" ; then
-	ifelse([$2], , :, [$2])
-else 
-	XFT_CFLAGS=`$PKG_CONFIG $xftconf_args --cflags xft`
-	XFT_LIBS=`$PKG_CONFIG $xftconf_args --libs xft`
-	ifelse([$1], , :, [$1])
-fi
-
+PKG_CHECK_MODULES([XFT],[xft],[$1],[$2])
 ])
 
 # AM_PATH_XFT(default-value, [ACTION-IF-FOUND [, ACTION-IF-NOT-FOUND]]])
