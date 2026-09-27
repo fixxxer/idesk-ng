@@ -24,6 +24,7 @@
 
 #include "DesktopConfig.h"
 #include "Util.h"
+#include "FreeDesktopIcon.h"
 #include <sys/stat.h>
 
 // the initializer list just sets the program defaults for non-necessary options
@@ -275,14 +276,15 @@ void DesktopConfig::loadIcons()
 					cerr << "Error: \"" << files[i]->d_name << "\" is not a valid .lnk desktop icon\n";
 			} else if (filename.size() > 8 && filename.substr(filename.size()-8,filename.size()) == ".desktop")
 			{
-/*				FreeDesktopIcon fdi(filename);
-				
-				if (fdi.isValid())
+				FreeDesktopIcon fdi(filename);
+
+				if (fdi.isValid() && fdi.shouldDisplay())
 				{
-					iconPtr = new DesktopIconConfig(filename, fdi, common); 
+					DesktopIconConfig *iconPtr = new DesktopIconConfig(filename, fdi, common);
 					iconConfigList.push_back(iconPtr);
-				} else */
+				} else if (!fdi.isValid())
 					cerr << "Error: \"" << files[i]->d_name << "\" is not a valid .desktop desktop icon\n";
+				// else: well-formed but Hidden=true/NoDisplay=true -- silently skipped, not an error
 			} else
 				cerr << "Warning: \"" << files[i]->d_name << "\" is not a recognized desktop icon (.lnk or .desktop)\n";
 
