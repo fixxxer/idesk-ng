@@ -1,6 +1,8 @@
-# Idesk User README
+# iDesk-NG User README
 
-Idesk is program that draws desktop icons. Each icon will execute a shell command on a configurable action. The icons can be moved on the desktop by dragging them, and the icons will remember their positions on start-up. Oh yea, forgot there is cool eye-candy.
+iDesk-NG is the modernized continuation of idesk, a lightweight program that draws desktop icons for X11 window managers that don't provide their own (Openbox, Fluxbox, i3, dwm, IceWM, JWM, and similar). Each icon will execute a shell command on a configurable action. The icons can be moved on the desktop by dragging them, and the icons will remember their positions on start-up. Oh yea, forgot there is cool eye-candy.
+
+Lineage: original idesk (SourceForge, aavelar) -> neagix/idesk fork on GitHub -> iDesk-NG. See `DESIGN.md` for the architecture and roadmap decisions behind this fork.
 
 Supported icon formats:
 * JPEG
