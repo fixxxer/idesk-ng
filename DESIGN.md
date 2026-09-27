@@ -85,10 +85,24 @@ launchers, not a proprietary per-DE format. Plan:
   not just "legacy". Writing a `.lnk` by hand (or via a provisioning
   script) with `X`/`Y` set remains the way to pre-seed icon positions
   for a fresh install.
-- `.desktop` parsing gets finished: the `FreeDesktopIcon` class exists
-  in neagix's tree but is an empty stub, and `DesktopIconConfig` is
-  missing the constructor overload the (commented-out) call site in
-  `DesktopConfig.cpp` expects. This is the main net-new C++ work.
+- **DONE.** `.desktop` parsing: `FreeDesktopIcon` (`src/FreeDesktopIcon.{h,cpp}`)
+  now parses the `[Desktop Entry]` group (Type=Application/Link, Name,
+  Comment, Exec with field-code stripping, Icon with a best-effort
+  pixmap/icon-theme lookup, Hidden/NoDisplay, and the `X-Idesk-Width`/
+  `X-Idesk-Height` vendor keys) and populates itself as a `Table` using
+  the same keys `DesktopIconConfig` already reads from `.lnk` files.
+  The fix needed was smaller than first thought: `DesktopIconConfig`'s
+  existing constructor already matched the call site neagix had
+  commented out in `DesktopConfig.cpp` — the only real blocker was
+  `FreeDesktopIcon` inheriting `Table` *privately*, which made it
+  unusable as a `Table&` from outside. No new constructor was needed,
+  just `public Table` and a real parser body. Verified with a small
+  standalone harness against 4 fixtures (normal app, `NoDisplay=true`,
+  unsupported `Type=Directory`, missing file) — all behave as designed.
+  Still open: full Icon Theme Specification resolution (today's lookup
+  is a short, best-effort path list, not real theme/index.theme
+  resolution) and the `~/Desktop` directory merge + plain-file MIME
+  icons described below, which are separate, not-yet-started work.
 - Plain files/folders in `~/Desktop` (no `.lnk`, no `.desktop`) get an
   icon resolved by MIME type via GIO (`g_content_type_guess` +
   `g_content_type_get_icon`) — already linked in for SVG support, no

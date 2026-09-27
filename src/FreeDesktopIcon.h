@@ -1,7 +1,8 @@
 /* 
- * Idesk -- DesktopIconConfig.h
+ * Idesk -- FreeDesktopIcon.h
  *
  * Copyright (c) 2013, neagix
+ * Copyright (c) 2026, iDesk-NG contributors
  * Some rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -24,11 +25,58 @@
 #ifndef FREEDESKTOP_ICON_CLASS
 #define FREEDESKTOP_ICON_CLASS
 
+#include <string>
 #include "Database.h"
 
-class FreeDesktopIcon : Table
+using namespace std;
+
+/*
+ * Parses a freedesktop.org Desktop Entry file (.desktop) and exposes the
+ * result as a Table populated with the SAME keys DesktopIconConfig already
+ * reads from .lnk files (Icon, Caption, ToolTip.Caption, Command, Width,
+ * Height). Because of that, DesktopIconConfig needs no separate code path
+ * for .desktop-derived icons -- it stays 100% agnostic between a Table that
+ * came from a .lnk and one that came from here.
+ *
+ * Scope of the Desktop Entry Specification implemented (see
+ * https://specifications.freedesktop.org/desktop-entry-spec/latest/):
+ *  - only the [Desktop Entry] group is read; other groups such as
+ *    [Desktop Action ...] are ignored.
+ *  - Type=Application (Exec/TryExec) and Type=Link (URL, opened via
+ *    xdg-open) are supported. Type=Directory is not handled -- it isn't
+ *    meaningful for a standalone .desktop icon file.
+ *  - localized keys (Name[xx], Comment[xx], ...) are ignored in favour of
+ *    the base key, which every spec-compliant file must still provide.
+ *  - field codes in Exec (%f %F %u %U %i %c %k %d %D %n %N %v %m %%) are
+ *    stripped rather than expanded -- idesk icons take no launch arguments.
+ *  - Icon= resolution: an absolute path is used as-is; a bare icon-theme
+ *    name gets a short, best-effort lookup under /usr/share/pixmaps and
+ *    /usr/share/icons/hicolor/. Full Icon Theme Specification resolution
+ *    (theme inheritance, index.theme parsing, scalable/ handling) is a
+ *    separate, larger piece of work -- see DESIGN.md.
+ *
+ * The vendor extension keys X-Idesk-Width / X-Idesk-Height are read into
+ * Width / Height. X-Idesk-X / X-Idesk-Y are intentionally NOT read here:
+ * per DESIGN.md, position is seeded into iDesk-NG's own layout database
+ * the first time an icon is discovered, never re-read from the .desktop
+ * file on every load.
+ */
+class FreeDesktopIcon : public Table
 {
-	
+    protected:
+        bool visible;
+
+        static string stripExecFieldCodes(const string & exec);
+        static string resolveIconPath(const string & icon);
+
+    public:
+        FreeDesktopIcon(const string & filename);
+
+        // false for Hidden=true / NoDisplay=true entries: a well-formed
+        // .desktop file that explicitly asks not to be shown, which is
+        // different from a malformed one (isValid() covers that case,
+        // inherited from Table).
+        bool shouldDisplay() { return visible; }
 };
 
 #endif
