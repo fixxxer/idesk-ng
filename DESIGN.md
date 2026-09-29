@@ -107,9 +107,46 @@ launchers, not a proprietary per-DE format. Plan:
   icon resolved by MIME type via GIO (`g_content_type_guess` +
   `g_content_type_get_icon`) — already linked in for SVG support, no
   new dependency.
-- Default scan location becomes `~/Desktop`, merging all three kinds
-  above; `~/.config/idesktop/` (fallback `~/.ideskrc/`) keeps being
-  read forever for existing installs — no silent moves, ever.
+- **DONE.** `~/Desktop` merge: `loadIcons()` now scans the standard XDG
+  Desktop directory in addition to `~/.config/idesktop/` (fallback
+  `~/.idesktop/`), which keeps being read forever for existing installs
+  — no silent moves, ever. The XDG directory is resolved properly (not
+  hardcoded to the English name): `$XDG_DESKTOP_DIR` env var, then the
+  `XDG_DESKTOP_DIR=` line in `$XDG_CONFIG_HOME/user-dirs.dirs` (with its
+  literal `$HOME` token substituted), then `$HOME/Desktop` as the spec's
+  own default. This matters concretely: a Spanish-locale system's
+  `xdg-user-dirs` typically sets this to `~/Escritorio`, not `~/Desktop`
+  — verified with both cases in a standalone harness (see below).
+
+  Files in the XDG Desktop dir that aren't `.lnk`/`.desktop` (plain
+  files/folders — the MIME-icon piece, still open, see below) are
+  silently skipped rather than warned about: an ordinary `~/Desktop` is
+  expected to hold plenty of unrelated files, and warning about each one
+  would look like a bug. `~/.config/idesktop/` keeps warning on anything
+  unrecognized, since every file there is expected to be an icon.
+
+  **Bug found and fixed along the way:** `backgroundFile()` had a second,
+  older condition — `if filename doesn't end in ".lnk", treat it as a
+  background file (skip silently)` — left over from before `.desktop`
+  support existed. This ran *before* the `.lnk`/`.desktop` dispatch in
+  the scan loop, which meant it was silently discarding every `.desktop`
+  file before that dispatch logic ever got a chance to see it — in
+  *both* directories, including `~/.config/idesktop/` itself. In other
+  words, the `.desktop` parser built for iDesk-NG was never actually
+  reachable in a real `loadIcons()` run until this was fixed, despite
+  compiling and passing its own isolated test earlier. Found only by
+  testing the real end-to-end path (a small headless harness
+  constructing a real `DesktopConfig`, no X display needed — its
+  constructor never touches Xlib), not by compiling the parser in
+  isolation. Fixed by having `backgroundFile()` only filter dotfiles and
+  `~`-backup files, leaving format recognition entirely to the dispatch
+  loop. One side effect had to be handled explicitly: `ideskrc` normally
+  lives in the same directory as the icons
+  (`~/.config/idesktop/ideskrc`), so removing the old blanket filter
+  would have made it start printing a spurious "not a recognized
+  desktop icon" warning on every single startup — `scanIconDirectory()`
+  now takes an explicit `excludeFilename` and skips `ideskrc` by name
+  instead.
 
 ### `.lnk` -> `.desktop` field mapping (used by `--migrate-to-desktop`)
 
