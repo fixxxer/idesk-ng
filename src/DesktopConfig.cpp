@@ -221,48 +221,30 @@ void DesktopConfig::setDesktopOnlyOptions(Table table)
 }
 
 
-void DesktopConfig::loadIcons()
+void DesktopConfig::scanIconDirectory(const string & dir, bool warnOnUnrecognized,
+                                       const string & excludeFilename)
 {
     struct dirent **files;
-    char * tmp;
-    string xdgConfigHome;
-    string homeDirectory;
-
-    // see https://specifications.freedesktop.org/basedir-spec/basedir-spec-latest.html
-    tmp = getenv("XDG_CONFIG_HOME");
-    if (tmp) {
-        xdgConfigHome.assign(tmp);
-    }
-
-    tmp = getenv("HOME");
-    if (tmp) {
-        homeDirectory.assign(tmp);
-    }
-
-    if (xdgConfigHome.empty()) {
-        xdgConfigHome = homeDirectory + "/.config";
-    }
-
-    string idesktopDir = xdgConfigHome + "/idesktop/";
-
-    int fileCount = scandir(idesktopDir.c_str(), &files, 0, alphasort);
+    int fileCount = scandir(dir.c_str(), &files, 0, alphasort);
     if (fileCount == -1)
     {
-        cerr << "No icons found in " << idesktopDir << " - trying legacy location ~/.idesktop\n";
-        idesktopDir = homeDirectory + "/.idesktop/";
-        fileCount = scandir(idesktopDir.c_str(), &files, 0, alphasort);
-        if (fileCount == -1) {
-            cerr << "No icons found in " << idesktopDir << "\n";
-            return;
-        }
+        cerr << "No icons found in " << dir << "\n";
+        return;
     }
 
     for(int i = 0; i < fileCount; i++)
     {
+        if (!excludeFilename.empty() && string(files[i]->d_name) == excludeFilename)
+        {
+            free(files[i]);
+            continue; // this is ideskrc itself, living alongside the icons
+                      // -- not an icon, and not even worth a warning about
+        }
+
         if (!backgroundFile(files[i]->d_name))
         {
-            string filename = idesktopDir + files[i]->d_name;
-            
+            string filename = dir + files[i]->d_name;
+
             if (filename.size() > 4 && filename.substr(filename.size()-4,filename.size()) == ".lnk")
             {
 				Database db = Database(filename, false);
@@ -285,13 +267,136 @@ void DesktopConfig::loadIcons()
 				} else if (!fdi.isValid())
 					cerr << "Error: \"" << files[i]->d_name << "\" is not a valid .desktop desktop icon\n";
 				// else: well-formed but Hidden=true/NoDisplay=true -- silently skipped, not an error
-			} else
+			} else if (warnOnUnrecognized)
 				cerr << "Warning: \"" << files[i]->d_name << "\" is not a recognized desktop icon (.lnk or .desktop)\n";
+			// else: a plain file sitting in the XDG Desktop dir that isn't
+			// (yet) turned into an icon -- needs MIME-based icon
+			// resolution (see DESIGN.md, still open). Silently skipped
+			// rather than warned: an ordinary ~/Desktop is expected to
+			// hold plenty of files that were never meant to be icons, and
+			// warning about every one of them would look like a bug.
 
             free(files[i]);
         }
     }
     free(files);
+}
+
+// Resolves the user's XDG "Desktop" folder per the freedesktop.org
+// xdg-user-dirs spec (https://www.freedesktop.org/wiki/Software/xdg-user-dirs/).
+// This is NOT always literally ~/Desktop -- e.g. a Spanish-locale system
+// typically has it at ~/Escritorio instead. Resolution order:
+//   1. $XDG_DESKTOP_DIR environment variable (rarely exported directly,
+//      but some session setups do)
+//   2. the XDG_DESKTOP_DIR="..." line in $XDG_CONFIG_HOME/user-dirs.dirs
+//      (the file xdg-user-dirs-update actually writes on login)
+//   3. $HOME/Desktop, the spec's own documented default when neither of
+//      the above is present (e.g. a minimal WM setup with no XDG session
+//      tooling ever run)
+string DesktopConfig::getXdgDesktopDir()
+{
+    char * tmp;
+    string homeDirectory, xdgConfigHome;
+
+    tmp = getenv("HOME");
+    if (tmp)
+        homeDirectory.assign(tmp);
+
+    tmp = getenv("XDG_DESKTOP_DIR");
+    if (tmp && tmp[0] != '\0')
+        return string(tmp) + "/";
+
+    tmp = getenv("XDG_CONFIG_HOME");
+    if (tmp && tmp[0] != '\0')
+        xdgConfigHome.assign(tmp);
+    else
+        xdgConfigHome = homeDirectory + "/.config";
+
+    string userDirsFile = xdgConfigHome + "/user-dirs.dirs";
+    ifstream f(userDirsFile.c_str());
+    if (f.is_open())
+    {
+        string line;
+        while (getline(f, line))
+        {
+            if (line.empty() || line[0] == '#')
+                continue;
+            if (line.find("XDG_DESKTOP_DIR") == string::npos)
+                continue;
+
+            size_t q1 = line.find('"');
+            size_t q2 = (q1 == string::npos) ? string::npos
+                                              : line.find('"', q1 + 1);
+            if (q1 == string::npos || q2 == string::npos)
+                continue;
+
+            string value = line.substr(q1 + 1, q2 - q1 - 1);
+
+            // the file stores a literal "$HOME" token, not something the
+            // shell has already expanded for us
+            size_t homePos = value.find("$HOME");
+            if (homePos != string::npos)
+                value.replace(homePos, 5, homeDirectory);
+
+            f.close();
+            return value + "/";
+        }
+        f.close();
+    }
+
+    // spec-documented default
+    return homeDirectory + "/Desktop/";
+}
+
+void DesktopConfig::loadIcons()
+{
+    char * tmp;
+    string xdgConfigHome;
+    string homeDirectory;
+
+    // see https://specifications.freedesktop.org/basedir-spec/basedir-spec-latest.html
+    tmp = getenv("XDG_CONFIG_HOME");
+    if (tmp) {
+        xdgConfigHome.assign(tmp);
+    }
+
+    tmp = getenv("HOME");
+    if (tmp) {
+        homeDirectory.assign(tmp);
+    }
+
+    if (xdgConfigHome.empty()) {
+        xdgConfigHome = homeDirectory + "/.config";
+    }
+
+    string idesktopDir = xdgConfigHome + "/idesktop/";
+
+    struct stat dirStat;
+    if (stat(idesktopDir.c_str(), &dirStat) != 0 || !S_ISDIR(dirStat.st_mode))
+    {
+        cerr << "No icons found in " << idesktopDir << " - trying legacy location ~/.idesktop\n";
+        idesktopDir = homeDirectory + "/.idesktop/";
+    }
+
+    // iDesk-NG's own directory keeps being scanned first, exactly as
+    // before -- warnings on unrecognized files stay on here, since every
+    // file in this curated directory is expected to be an icon. ideskrc
+    // itself normally lives right here too (~/.config/idesktop/ideskrc),
+    // so it's excluded by name rather than warned about on every startup.
+    string ideskrcBasename = ideskrcFile;
+    size_t lastSlash = ideskrcBasename.find_last_of('/');
+    if (lastSlash != string::npos)
+        ideskrcBasename = ideskrcBasename.substr(lastSlash + 1);
+
+    scanIconDirectory(idesktopDir, /* warnOnUnrecognized = */ true, ideskrcBasename);
+
+    // Merge in the standard XDG Desktop directory, where GNOME/KDE/XFCE's
+    // own icons already live (see DESIGN.md "Legacy / standard icon
+    // support"). Guard against the unlikely case they resolve to the same
+    // path so nothing gets scanned twice.
+    string xdgDesktopDir = getXdgDesktopDir();
+    if (xdgDesktopDir != idesktopDir)
+        scanIconDirectory(xdgDesktopDir, /* warnOnUnrecognized = */ false, "");
 }
 
 void DesktopConfig::saveLockState(bool lockState)
@@ -323,15 +428,23 @@ void DesktopConfig::saveLockState(bool lockState)
 
 bool DesktopConfig::backgroundFile(const string & filename)
 {
-    bool returnBool = false;
-    
+    // Only filters out hidden dotfiles (this also naturally covers "."
+    // and "..") and editor backup files ending in '~'. Recognizing which
+    // *remaining* files are actual icons (.lnk, .desktop, or -- not yet
+    // implemented -- a plain file resolved by MIME type) is entirely the
+    // job of scanIconDirectory()'s own dispatch below.
+    //
+    // NOTE: this used to also reject anything not ending in ".lnk",
+    // which meant a .desktop file was discarded right here and never
+    // even reached the .desktop branch in scanIconDirectory() -- silently
+    // defeating both the original (dead) FreeDesktopIcon stub and the
+    // real parser implemented for iDesk-NG. Found via end-to-end testing
+    // with a real DesktopConfig/loadIcons() run, not just compiling.
     if (filename.size() > 0 && (
             filename[0] == '.' ||
 	filename[filename.size() - 1] == '~' ))
-        returnBool = true;
-    else if (filename.size() > 4 && filename.substr(filename.size()-4,filename.size()) != ".lnk")
-	    returnBool = true;
+        return true;
 
-    return returnBool;
+    return false;
 }
 

@@ -53,6 +53,9 @@ class DesktopConfig : public AbstractConfig
     CommonOptions * common;
 
     virtual void loadIcons();
+    virtual void scanIconDirectory(const string & dir, bool warnOnUnrecognized,
+                                    const string & excludeFilename);
+    virtual string getXdgDesktopDir();
     virtual bool backgroundFile(const string & filename);
 
     public:
