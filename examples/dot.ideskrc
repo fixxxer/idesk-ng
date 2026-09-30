@@ -1,9 +1,9 @@
 table Config
-  FontName: Arial
+  FontName: Sans
   FontSize: 10
   FontColor: #000000
   ToolTip.FontSize: 12
-  ToolTip.FontName: Arial
+  ToolTip.FontName: Sans
   ToolTip.ForeColor: #0000FF
   ToolTip.BackColor: #FFFFFF
   ToolTip.CaptionOnHover: true
@@ -14,7 +14,7 @@ table Config
   ShadowColor: #000000
   ShadowX: 1
   ShadowY: 1 
-  Bold: true
+  Bold: false
   ClickDelay: 300
   IconSnap: true
   SnapWidth: 10

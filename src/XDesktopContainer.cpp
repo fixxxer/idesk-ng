@@ -126,8 +126,26 @@ void XDesktopContainer::getRootImage()
      imlib_context_set_drawable(rootWindow);
      
      bg = new XImlib2Background(this,config);
-    
-     bg->InitSpareRoot(rootWindow);
+
+     // Prefer whatever wallpaper is already set on the root window (via
+     // the standard _XROOTPMAP_ID property that feh/hsetroot/Esetroot and
+     // similar tools publish) over InitSpareRoot()'s "create a temp
+     // ParentRelative window and snapshot it immediately" trick below.
+     //
+     // Found on real hardware: InitSpareRoot() maps its temp window and
+     // reads it back with imlib_create_image_from_drawable() on the very
+     // next line, with no XSync/wait for the X server to actually realize
+     // the ParentRelative background first -- a race that reliably grabbed
+     // a blank/black image instead of the real wallpaper, even though
+     // xprop -root _XROOTPMAP_ID showed a perfectly valid pixmap the whole
+     // time. This is exactly why every icon caption (which crops this
+     // image to fake transparency -- see XImlib2Caption::draw()) showed a
+     // solid black box behind the text instead of the desktop wallpaper.
+     Pixmap existingRootPixmap = bg->GetRootPixmap(None);
+     if (existingRootPixmap != None)
+         bg->Refresh(existingRootPixmap);
+     else
+         bg->InitSpareRoot(rootWindow);
 	
      if(!bg->IsOneShot()){	
         timer = new Timer(this);
