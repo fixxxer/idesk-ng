@@ -23,6 +23,7 @@
  */
 
 #include "Misc.h"
+#include <unistd.h>
 
 extern char ** args;
 
@@ -43,4 +44,49 @@ string itos(int i) // convert int to string
  stringstream s;
  s << i;
  return s.str();
+}
+
+string resolveIconThemeName(const string & name)
+{
+    if (name.empty())
+        return "";
+
+    static const char * candidateDirs[] = {
+        "/usr/share/pixmaps/",
+        "/usr/share/icons/hicolor/256x256/apps/",
+        "/usr/share/icons/hicolor/128x128/apps/",
+        "/usr/share/icons/hicolor/48x48/apps/",
+        "/usr/share/icons/hicolor/scalable/apps/",
+        "/usr/share/icons/hicolor/48x48/mimetypes/",
+        "/usr/share/icons/hicolor/scalable/mimetypes/",
+        "/usr/share/icons/hicolor/48x48/places/",
+        "/usr/share/icons/hicolor/scalable/places/",
+        // hicolor is the spec-mandated fallback theme, but on most real
+        // systems it's near-empty -- Adwaita (GNOME/Ubuntu/many others'
+        // actual default) is where the real files live. Confirmed by
+        // testing against a real filesystem: hicolor had none of these,
+        // Adwaita had all of them.
+        "/usr/share/icons/Adwaita/256x256/apps/",
+        "/usr/share/icons/Adwaita/128x128/apps/",
+        "/usr/share/icons/Adwaita/48x48/apps/",
+        "/usr/share/icons/Adwaita/scalable/apps/",
+        "/usr/share/icons/Adwaita/48x48/mimetypes/",
+        "/usr/share/icons/Adwaita/scalable/mimetypes/",
+        "/usr/share/icons/Adwaita/48x48/places/",
+        "/usr/share/icons/Adwaita/scalable/places/",
+        NULL
+    };
+    static const char * candidateExts[] = { ".png", ".svg", ".xpm", NULL };
+
+    for (int d = 0; candidateDirs[d]; d++)
+    {
+        for (int e = 0; candidateExts[e]; e++)
+        {
+            string path = string(candidateDirs[d]) + name + candidateExts[e];
+            if (access(path.c_str(), F_OK) == 0)
+                return path;
+        }
+    }
+
+    return "";
 }

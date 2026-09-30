@@ -96,6 +96,16 @@ PKG_CHECK_MODULES([IMLIB], [imlib2 > 1.0])
 CXXFLAGS="$CXXFLAGS $IMLIB_CFLAGS"
 LIBS="$LIBS $IMLIB_LIBS"
 
+dnl GLib/GIO detection -- required unconditionally (not gated behind
+dnl --enable-svg like gdk-pixbuf/librsvg below), since MIME-based icon
+dnl resolution for plain files in the XDG Desktop directory (see
+dnl DESIGN.md) is a core iDesk-NG feature, not an optional extra. This
+dnl is a very small, near-universal dependency on any Linux desktop.
+PKG_CHECK_MODULES([GIO], [gio-2.0])
+
+CXXFLAGS="$CXXFLAGS $GIO_CFLAGS"
+LIBS="$LIBS $GIO_LIBS"
+
 
 dnl Check for libsn Startup Notification options
 STARTUP=""

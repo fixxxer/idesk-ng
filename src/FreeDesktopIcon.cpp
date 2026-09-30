@@ -71,10 +71,10 @@ string FreeDesktopIcon::stripExecFieldCodes(const string & exec)
 }
 
 // Best-effort Icon= resolution. An absolute path is trusted as-is (same
-// convention .lnk already uses). A bare icon-theme name gets a short list
-// of conventional locations tried in order -- this is NOT a full Icon
-// Theme Specification resolver (no theme inheritance, no index.theme
-// parsing); see the header comment and DESIGN.md.
+// convention .lnk already uses). A bare icon-theme name is resolved via
+// the shared resolveIconThemeName() helper (see Misc.h) -- NOT a full
+// Icon Theme Specification resolver; see the header comment and
+// DESIGN.md.
 string FreeDesktopIcon::resolveIconPath(const string & icon)
 {
     if (icon.empty())
@@ -83,30 +83,12 @@ string FreeDesktopIcon::resolveIconPath(const string & icon)
     if (icon[0] == '/')
         return icon;
 
-    static const char * candidateDirs[] = {
-        "/usr/share/pixmaps/",
-        "/usr/share/icons/hicolor/256x256/apps/",
-        "/usr/share/icons/hicolor/128x128/apps/",
-        "/usr/share/icons/hicolor/48x48/apps/",
-        "/usr/share/icons/hicolor/scalable/apps/",
-        NULL
-    };
-    static const char * candidateExts[] = { ".png", ".svg", ".xpm", NULL };
-
-    for (int d = 0; candidateDirs[d]; d++)
-    {
-        for (int e = 0; candidateExts[e]; e++)
-        {
-            string path = string(candidateDirs[d]) + icon + candidateExts[e];
-            if (access(path.c_str(), F_OK) == 0)
-                return path;
-        }
-    }
-
-    cerr << "Warning: could not resolve icon theme name \"" << icon
-         << "\" to a file (only a best-effort lookup is implemented, "
-         << "not the full Icon Theme Specification) -- icon will be blank\n";
-    return "";
+    string resolved = resolveIconThemeName(icon);
+    if (resolved.empty())
+        cerr << "Warning: could not resolve icon theme name \"" << icon
+             << "\" to a file (only a best-effort lookup is implemented, "
+             << "not the full Icon Theme Specification) -- icon will be blank\n";
+    return resolved;
 }
 
 FreeDesktopIcon::FreeDesktopIcon(const string & filename) : Table()

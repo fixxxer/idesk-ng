@@ -103,11 +103,47 @@ launchers, not a proprietary per-DE format. Plan:
   is a short, best-effort path list, not real theme/index.theme
   resolution) and the `~/Desktop` directory merge + plain-file MIME
   icons described below, which are separate, not-yet-started work.
-- Plain files/folders in `~/Desktop` (no `.lnk`, no `.desktop`) get an
-  icon resolved by MIME type via GIO (`g_content_type_guess` +
-  `g_content_type_get_icon`) — already linked in for SVG support, no
-  new dependency.
-- **DONE.** `~/Desktop` merge: `loadIcons()` now scans the standard XDG
+- **DONE.** MIME-type icons for plain files: `GenericFileIcon`
+  (`src/GenericFileIcon.{h,cpp}`) turns any plain file, folder, or
+  symlink in the XDG Desktop dir into an icon — the same thing
+  GNOME/KDE/XFCE already do. Uses GIO's `g_file_query_info()` with
+  `G_FILE_ATTRIBUTE_STANDARD_ICON` to get the correct themed icon
+  name(s) for the file's real MIME/content type (folders, symlinks —
+  followed to their target — and regular files are all told apart
+  correctly by GIO itself, no MIME database of our own needed). Those
+  theme names go through the same best-effort path lookup as
+  `.desktop` icons (`resolveIconThemeName()`, moved to `Misc.h`/`.cpp`
+  so both classes share it). Activating the icon runs `xdg-open <path>`
+  (shell-quoted), which opens the file with the user's default app or
+  the folder in their default file manager.
+
+  New `Desktop.AutoIcons` option in ideskrc's `Config` table (default
+  `true`) toggles this off for anyone who wants `~/Desktop` to stay
+  curated like `~/.config/idesktop/` always is. Only applies to the XDG
+  Desktop dir scan — `~/.config/idesktop/` never auto-iconizes plain
+  files, regardless of this setting.
+
+  **Dependency change:** `GenericFileIcon` needs `gio-2.0`, which used
+  to only be linked in under `--enable-svg` (transitively, via
+  gdk-pixbuf). Made `gio-2.0` an unconditional `PKG_CHECK_MODULES`
+  requirement in `configure.ac`, same tier as imlib2/Xft/Xt, since MIME
+  icon resolution is now a core feature, not an SVG-only extra. GLib is
+  near-universal on any Linux desktop, so the practical footprint added
+  is small — but it's a real, honest change to the "minimal build
+  deps" story from earlier in this file.
+
+  **Found by testing against a real filesystem, not just synthetic
+  fixtures:** the first version of `resolveIconThemeName()` only
+  searched the `hicolor` theme (the spec-mandated fallback), which
+  turned out to be nearly empty on a real Ubuntu install — the actual
+  icon files live in `Adwaita` (the real default theme for GNOME/Ubuntu
+  and many others). Added Adwaita as additional candidate paths
+  alongside hicolor. Verified end-to-end with a headless harness
+  (same technique as the `~/Desktop` merge commit) against real files
+  on disk: a folder resolved to Adwaita's `inode-directory.svg`, a
+  `.txt` file to `text-x-generic.svg`, and a symlink to `/bin/ls`
+  correctly followed through to `application-x-executable.svg` — GIO
+  resolved the *target's* type, not the symlink itself.- **DONE.** `~/Desktop` merge: `loadIcons()` now scans the standard XDG
   Desktop directory in addition to `~/.config/idesktop/` (fallback
   `~/.idesktop/`), which keeps being read forever for existing installs
   — no silent moves, ever. The XDG directory is resolved properly (not
