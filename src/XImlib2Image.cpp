@@ -80,14 +80,30 @@ bool XImlib2Image::createPictureFromSvg()
     DesktopIconConfig * dIconConfig =
         dynamic_cast<DesktopIconConfig *>(iconConfig);
 
+    // gdk_pixbuf_new_from_file_at_size() asserts (width > 0 || width == -1)
+    // internally -- with no explicit Width/Height (e.g. a GenericFileIcon,
+    // or a .desktop file with no X-Idesk-Width/Height), width/height default
+    // to 0, which used to hit that assertion and then crash on a null
+    // GError below, since glib's own assertion failure never populates
+    // gErr in the first place. Treat 0-sized icons as "nothing to render"
+    // instead of asking gdk-pixbuf to load at an invalid size.
+    if (width <= 0 || height <= 0)
+    {
+        cerr << "Warning: \"" << dIconConfig->getPictureFilename()
+             << "\" has no valid Width/Height to render an SVG at -- "
+             << "skipping this icon's image\n";
+        return false;
+    }
+
     GError * gErr = nullptr;
     // load SVG file and scale it to the icon size
     vectorPixbuf = gdk_pixbuf_new_from_file_at_size(dIconConfig->getPictureFilename().c_str(),
                                                  width, height, &gErr);
     if (!vectorPixbuf)
     {   
-        cerr << "librsvg error: " << gErr->message << endl;
-        g_clear_error (&gErr);
+        cerr << "librsvg error: " << (gErr ? gErr->message : "(unknown -- no GError set)") << endl;
+        if (gErr)
+            g_clear_error (&gErr);
         return false;
     }
 
