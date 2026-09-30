@@ -38,6 +38,7 @@ class DesktopConfig : public AbstractConfig
     int snapWidth, snapHeight;
     bool snapOn;
     bool startSnapLeft, startSnapTop;
+    bool autoIconizeDesktop;
 	
 	string fileBackground, colorBackground;
 	string sourceBackground, modeBackground;
@@ -54,7 +55,8 @@ class DesktopConfig : public AbstractConfig
 
     virtual void loadIcons();
     virtual void scanIconDirectory(const string & dir, bool warnOnUnrecognized,
-                                    const string & excludeFilename);
+                                    const string & excludeFilename,
+                                    bool autoIconizePlainFiles);
     virtual string getXdgDesktopDir();
     virtual bool backgroundFile(const string & filename);
 
@@ -72,6 +74,7 @@ class DesktopConfig : public AbstractConfig
     virtual bool getStartSnapLeft() { return startSnapLeft; }
     virtual int getSnapWidth() { return snapWidth; }
     virtual int getSnapHeight() { return snapHeight; }
+    virtual bool getAutoIconizeDesktop() { return autoIconizeDesktop; }
 	
 	virtual string getFileBackground(){ return fileBackground;}
 	virtual string getColorBackground(){ return colorBackground;}

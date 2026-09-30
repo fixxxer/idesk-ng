@@ -25,6 +25,7 @@
 #include "DesktopConfig.h"
 #include "Util.h"
 #include "FreeDesktopIcon.h"
+#include "GenericFileIcon.h"
 #include <sys/stat.h>
 
 // the initializer list just sets the program defaults for non-necessary options
@@ -89,6 +90,12 @@ void DesktopConfig::setDefaults()
     backColorTip = "#FFFACD";
     captionTipOnHover = false;
     captionTipPlacement = "Bottom";
+
+    // on by default: replicates what GNOME/KDE/XFCE already do for their
+    // own desktop icons. Off via Desktop.AutoIcons: false in ideskrc for
+    // anyone who wants ~/Desktop to stay curated (.lnk/.desktop only),
+    // same as ~/.config/idesktop/ always is.
+    autoIconizeDesktop = true;
 }
 
 void DesktopConfig::setDesktopOnlyOptions(Table table)
@@ -122,6 +129,11 @@ void DesktopConfig::setDesktopOnlyOptions(Table table)
     else if (tmpStr == "TOPRIGHT")
         startSnapLeft = false;
     // last case automatically handled with default of TOPLEFT
+
+    if (getUpper(table.Query("Desktop.AutoIcons")) == "TRUE")
+        autoIconizeDesktop = true;
+    else if (getUpper(table.Query("Desktop.AutoIcons")) == "FALSE")
+        autoIconizeDesktop = false;
     
      //File Background
       if (table.Query("Background.File") != "")
@@ -222,7 +234,8 @@ void DesktopConfig::setDesktopOnlyOptions(Table table)
 
 
 void DesktopConfig::scanIconDirectory(const string & dir, bool warnOnUnrecognized,
-                                       const string & excludeFilename)
+                                       const string & excludeFilename,
+                                       bool autoIconizePlainFiles)
 {
     struct dirent **files;
     int fileCount = scandir(dir.c_str(), &files, 0, alphasort);
@@ -269,12 +282,21 @@ void DesktopConfig::scanIconDirectory(const string & dir, bool warnOnUnrecognize
 				// else: well-formed but Hidden=true/NoDisplay=true -- silently skipped, not an error
 			} else if (warnOnUnrecognized)
 				cerr << "Warning: \"" << files[i]->d_name << "\" is not a recognized desktop icon (.lnk or .desktop)\n";
-			// else: a plain file sitting in the XDG Desktop dir that isn't
-			// (yet) turned into an icon -- needs MIME-based icon
-			// resolution (see DESIGN.md, still open). Silently skipped
-			// rather than warned: an ordinary ~/Desktop is expected to
-			// hold plenty of files that were never meant to be icons, and
-			// warning about every one of them would look like a bug.
+			else if (autoIconizePlainFiles)
+			{
+				// A plain file/folder/symlink in the XDG Desktop dir --
+				// same behaviour GNOME/KDE/XFCE already give these.
+				// Directories included: scandir doesn't distinguish here,
+				// and a directory's own d_name naturally never ends in
+				// .lnk or .desktop, so it reaches this branch too.
+				GenericFileIcon gfi(filename);
+				DesktopIconConfig *iconPtr = new DesktopIconConfig(filename, gfi, common);
+				iconConfigList.push_back(iconPtr);
+			}
+			// else: Desktop.AutoIcons is off -- a plain file that isn't
+			// (yet) turned into an icon is silently skipped rather than
+			// warned about, since an ordinary ~/Desktop is expected to
+			// hold plenty of files that were never meant to be icons.
 
             free(files[i]);
         }
@@ -388,7 +410,8 @@ void DesktopConfig::loadIcons()
     if (lastSlash != string::npos)
         ideskrcBasename = ideskrcBasename.substr(lastSlash + 1);
 
-    scanIconDirectory(idesktopDir, /* warnOnUnrecognized = */ true, ideskrcBasename);
+    scanIconDirectory(idesktopDir, /* warnOnUnrecognized = */ true, ideskrcBasename,
+                       /* autoIconizePlainFiles = */ false);
 
     // Merge in the standard XDG Desktop directory, where GNOME/KDE/XFCE's
     // own icons already live (see DESIGN.md "Legacy / standard icon
@@ -396,7 +419,8 @@ void DesktopConfig::loadIcons()
     // path so nothing gets scanned twice.
     string xdgDesktopDir = getXdgDesktopDir();
     if (xdgDesktopDir != idesktopDir)
-        scanIconDirectory(xdgDesktopDir, /* warnOnUnrecognized = */ false, "");
+        scanIconDirectory(xdgDesktopDir, /* warnOnUnrecognized = */ false, "",
+                           autoIconizeDesktop);
 }
 
 void DesktopConfig::saveLockState(bool lockState)

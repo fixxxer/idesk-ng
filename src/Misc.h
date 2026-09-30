@@ -37,4 +37,13 @@ string getUpper(const string & str);
 //void Reboot();
 string itos(int i);
 
+// Best-effort resolution of a bare icon-theme name (e.g. "firefox",
+// "folder", "text-x-generic") to an actual image file on disk. Tries a
+// short, fixed list of conventional locations/extensions -- NOT a full
+// Icon Theme Specification resolver (no theme inheritance, no
+// index.theme parsing, no size matching). Returns "" if nothing is
+// found. Shared by FreeDesktopIcon (.desktop Icon= values) and
+// GenericFileIcon (MIME-type icons for plain files); see DESIGN.md.
+string resolveIconThemeName(const string & name);
+
 #endif
