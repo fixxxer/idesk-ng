@@ -215,8 +215,12 @@ FreeDesktopIcon::FreeDesktopIcon(const string & filename) : Table()
     Set("Command", command);
     Set("Icon", resolveIconPath(icon));
 
-    if (!xIdeskWidth.empty())
-        Set("Width", xIdeskWidth);
-    if (!xIdeskHeight.empty())
-        Set("Height", xIdeskHeight);
+    // Width/Height default to 48 when not set via X-Idesk-Width/Height --
+    // real-world .desktop files never carry those vendor keys, and with no
+    // fallback here they'd default to 0 (DesktopIconConfig does
+    // atoi(Query("Width")), and atoi("") is 0), which used to crash SVG
+    // icon loading outright (see XImlib2Image.cpp). 48 matches a common
+    // desktop icon size and gives something reasonable to look at.
+    Set("Width", xIdeskWidth.empty() ? "48" : xIdeskWidth);
+    Set("Height", xIdeskHeight.empty() ? "48" : xIdeskHeight);
 }

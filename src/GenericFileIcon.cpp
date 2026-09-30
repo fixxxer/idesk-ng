@@ -79,4 +79,10 @@ GenericFileIcon::GenericFileIcon(const string & path) : Table()
     Set("Caption", caption);
     Set("Command", "xdg-open " + shellQuoteSingle(path));
     Set("Icon", iconPath);
+
+    // Same reasoning as FreeDesktopIcon: no Width/Height means
+    // DesktopIconConfig defaults them to 0 (atoi("") == 0), which used to
+    // crash SVG loading outright. 48 is a reasonable default icon size.
+    Set("Width", "48");
+    Set("Height", "48");
 }
