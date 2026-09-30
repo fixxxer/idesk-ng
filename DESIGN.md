@@ -229,3 +229,28 @@ own manual icon placement.
 Migration is always explicit (`--migrate-to-desktop`), never automatic
 or silent — existing `~/.config/idesktop/` installs keep working
 untouched unless the user opts in.
+
+## Bugs found via real hardware testing (not in the original scope, fixed along the way)
+
+- **Caption "pseudo-transparency" showed solid black instead of the real
+  wallpaper.** Every icon caption crops the desktop background image at
+  its own position and paints that behind the text, to fake
+  transparency without a compositor (`XImlib2Caption::draw()`). That
+  crop comes from `XImlib2Background`'s `spareRoot` image, which used to
+  be populated unconditionally at startup by `InitSpareRoot()`: create a
+  temp `ParentRelative` window, map it, and immediately read it back
+  with `imlib_create_image_from_drawable()` -- with no `XSync`/wait for
+  the X server to actually realize the background first. On real
+  hardware this reliably captured a blank/black image, even though
+  `xprop -root _XROOTPMAP_ID` showed a perfectly valid wallpaper pixmap
+  the whole time -- `GetRootPixmap()`/`Refresh()` (the same functions
+  already used to react to wallpaper changes at runtime) were never
+  tried first. Fixed: `XDesktopContainer::getRootImage()` now tries the
+  real root pixmap via `_XROOTPMAP_ID` first, and only falls back to the
+  racy temp-window snapshot when no such pixmap is published.
+- **Shipped example config (`examples/dot.ideskrc`) used `FontName:
+  Arial` and `Bold: true`.** Arial isn't installed on a stock Ubuntu
+  system, so Xft/fontconfig silently substitutes something else, and
+  combined with forced bold this looked noticeably worse than it should.
+  Changed the example to `FontName: Sans` (a fontconfig alias that
+  always resolves to a real installed sans font) and `Bold: false`.
