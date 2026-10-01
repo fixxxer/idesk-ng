@@ -324,3 +324,18 @@ untouched unless the user opts in.
   centering needs a fundamentally different fill pattern (rings/spiral
   outward) rather than a corner + growth direction, so it would be a
   separate algorithm, not a small extension of this one.
+- **Icon lookup never searched Yaru, Ubuntu's own default icon theme
+  since 18.04, or the `categories/` subdirectory.** Found via `sudo
+  find / -name "preferences-system-network*"` on real hardware: the
+  bare name only existed under Yaru's `categories/` dir and as a
+  differently-named `-symbolic` variant under Adwaita -- neither
+  reachable by the lookup as it stood, so a real, present icon still
+  fell back to `image-missing`. Restructured `resolveIconThemeName()`
+  from a hand-written path list into theme x size x category
+  combinations (themes tried in order: Yaru, Adwaita, hicolor;
+  categories: apps, mimetypes, places, status, categories) -- easier to
+  extend than the old flat list, and immediately covers this case.
+  Still a best-effort search, not full Icon Theme Specification
+  resolution (no theme inheritance, no index.theme parsing, no
+  `-symbolic` suffix variants tried) -- see the function's own header
+  comment for the current scope.
