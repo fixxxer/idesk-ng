@@ -381,3 +381,23 @@ untouched unless the user opts in.
   querying it, so it fails quietly rather than warning on a system
   that never had GNOME's schemas installed at all. Verified: no
   warning or crash on this sandbox, which has no GNOME schemas either.
+- **The in-process GSettings approach above crashed on real hardware --
+  reproducible only *outside* gdb, the classic signature of a race gdb's
+  own slowdown masks.** `g_settings_new()` pulls in a GDBus connection to
+  dconf, which spins up GLib's own worker threads. idesk-ng's
+  pre-existing, 20-year-old command-launch code
+  (`XDesktopContainer.cpp`) uses raw `fork()+execl()` to run whatever
+  command an icon is configured with -- and `fork()` in a process that
+  has any other threads running is a well-known source of exactly this
+  kind of hard-to-reproduce crash: only the forking thread survives into
+  the child, so if a GDBus worker thread held a lock at that instant,
+  the child can deadlock or corrupt state.
+  Fixed by moving the GSettings read into a separate process entirely:
+  `getGSettingsIconThemeName()` now shells out to the `gsettings`
+  command-line tool via `popen()` instead of linking GSettings/GDBus
+  directly into idesk-ng. All of GSettings' threading machinery now runs
+  inside that separate process, so idesk-ng's own process never becomes
+  multi-threaded in the first place, and its existing fork()-based
+  command execution stays exactly as safe as it always was. Verified:
+  completes in well under 0.1s, no hang, correct result either way
+  (schema present or not).

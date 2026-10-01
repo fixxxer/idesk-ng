@@ -28,7 +28,7 @@
 #include <fstream>
 #include <vector>
 #include <sys/stat.h>
-#include <gio/gio.h>
+#include <cstdio>
 
 extern char ** args;
 
@@ -51,38 +51,48 @@ string itos(int i) // convert int to string
  return s.str();
 }
 
-// Reads the icon theme straight from GNOME's own setting via GSettings/
-// dconf (org.gnome.desktop.interface icon-theme) -- the actual source
-// of truth on any GNOME-based system (Ubuntu included), set even on a
-// system that has never run a full GNOME session. ~/.config/gtk-3.0/
-// settings.ini (checked separately, see getConfiguredIconThemeName())
-// is only a *copy* of this, written out by gnome-settings-daemon's
-// xsettings sync -- which never runs for someone who only ever logs
-// into Openbox/Fluxbox/etc, exactly the audience this project targets.
-// Found on real hardware: that file plain doesn't exist on an Ubuntu
-// install that's only ever been used through Openbox. Checking the
-// schema exists first avoids a glib warning on a system that never had
-// GNOME's schemas installed at all (gsettings-desktop-schemas).
+// Reads the icon theme via the `gsettings` command-line tool, run as a
+// separate process, rather than linking GSettings/GDBus directly into
+// idesk-ng itself.
+//
+// Found crashing on real hardware (reproducible only outside gdb --
+// the classic signature of a race gdb's own slowdown masks): calling
+// g_settings_new() in-process pulls in a GDBus connection to dconf,
+// which spins up GLib's own worker threads. idesk-ng's pre-existing,
+// 20-year-old command-launch code (XDesktopContainer.cpp) uses raw
+// fork()+execl() -- and fork() in a process that has *any* other
+// threads running is a well-known source of exactly this kind of
+// hard-to-reproduce crash (only the forking thread survives into the
+// child; if a GDBus worker thread held a lock at that instant, the
+// child can deadlock or corrupt state).
+//
+// Shelling out avoids the problem at its root: all of GSettings'
+// GDBus/threading machinery runs inside the separate `gsettings`
+// process, so idesk-ng's own process never becomes multi-threaded in
+// the first place, and its existing fork()-based command execution
+// stays exactly as safe as it always was.
 static string getGSettingsIconThemeName()
 {
-    GSettingsSchemaSource * source = g_settings_schema_source_get_default();
-    if (!source)
+    FILE * pipe = popen("gsettings get org.gnome.desktop.interface icon-theme 2>/dev/null", "r");
+    if (!pipe)
         return "";
 
-    GSettingsSchema * schema =
-        g_settings_schema_source_lookup(source, "org.gnome.desktop.interface", TRUE);
-    if (!schema)
+    string result;
+    char buf[256];
+    while (fgets(buf, sizeof(buf), pipe) != NULL)
+        result += buf;
+
+    int status = pclose(pipe);
+    if (status != 0)
+        return ""; // gsettings not installed, schema missing, no session bus, etc.
+
+    // output looks like: 'Yaru-dark'\n -- strip quotes and whitespace
+    size_t a = result.find_first_not_of(" \t\r\n'");
+    size_t b = result.find_last_not_of(" \t\r\n'");
+    if (a == string::npos)
         return "";
-    g_settings_schema_unref(schema);
 
-    GSettings * settings = g_settings_new("org.gnome.desktop.interface");
-    gchar * value = g_settings_get_string(settings, "icon-theme");
-    string result = value ? value : "";
-    if (value)
-        g_free(value);
-    g_object_unref(settings);
-
-    return result;
+    return result.substr(a, b - a + 1);
 }
 
 // Reads the icon theme the user actually has configured, so icon lookup
