@@ -210,8 +210,7 @@ void XDesktopContainer::loadIcons()
 
 void XDesktopContainer::arrangeIcons()
 {
-    int maxW = 0;
-    int iconX, iconY = 20;
+    int maxW = 0, maxRowStep = 0;
 
     if( iconList.size() == 0 )
     {
@@ -223,26 +222,56 @@ void XDesktopContainer::arrangeIcons()
         XIcon *iPtr = dynamic_cast<XIcon *>(iconList[i]);
         if( iPtr->getWidth() > maxW )
             maxW = iPtr->getWidth();
+        int rowStep = iPtr->getHeight() + 30 + iPtr->getFontHeight();
+        if( rowStep > maxRowStep )
+            maxRowStep = rowStep;
     }
 
-    iconX = widthOfScreen() - maxW - 20;
+    // How many non-overlapping grid slots actually fit on screen, using
+    // the exact same column/row spacing the loop below places icons
+    // with. Past this many un-positioned icons, further ones reuse the
+    // same slots again with a small X/Y shift per "layer" (like a
+    // fanned stack of cards) instead of continuing to add columns past
+    // the left edge of the screen.
+    //
+    // Found on real hardware with ~100 real .desktop files copied into
+    // ~/Desktop as a stress test: the old unbounded "iconX -= 20+maxW"
+    // column-wrap never stopped, so once there were more icons than fit
+    // in one pass, the rest landed at a negative X -- off-screen and
+    // completely unreachable, not merely overlapping. ~40 icons were
+    // visible; the other ~60 existed but were invisible.
+    int columns = (widthOfScreen() - 20) / (maxW + 20);
+    if (columns < 1) columns = 1;
+    int rows = (heightOfScreen() - 20) / maxRowStep;
+    if (rows < 1) rows = 1;
+    int capacity = columns * rows;
 
+    const int shiftStep = 15; // px of X/Y offset per extra layer
+
+    int slot = 0;
     for(unsigned int i = 0; i < iconList.size(); i++ )
     {
         XIcon *iPtr = dynamic_cast<XIcon *>(iconList[i]);
 
-        if( iconY + iPtr->getHeight() + 30 + iPtr->getFontHeight() >
-                heightOfScreen() )
-        {
-            iconY = 20;
-            iconX = iconX - 20 - maxW;
-        }
-        
         if( iPtr->getX() == 0 && iPtr->getY() == 0 )
         {
-            iPtr->setX(iconX + ((maxW - iPtr->getWidth())/2));
-            iPtr->setY(iconY);
-            iconY += iPtr->getHeight() + 30 + iPtr->getFontHeight();
+            int layer = slot / capacity;
+            int posInLayer = slot % capacity;
+            int col = posInLayer / rows;
+            int row = posInLayer % rows;
+
+            int baseX = widthOfScreen() - maxW - 20 - col * (maxW + 20);
+            int baseY = 20 + row * maxRowStep;
+
+            int finalX = baseX + layer * shiftStep;
+            int finalY = baseY + layer * shiftStep;
+            if (finalX < 20)
+                finalX = 20; // defensive floor for pathological screen/icon sizes
+
+            iPtr->setX(finalX + ((maxW - iPtr->getWidth())/2));
+            iPtr->setY(finalY);
+
+            slot++;
         }
         
         iPtr->moveImageWindow();

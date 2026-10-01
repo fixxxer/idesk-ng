@@ -271,3 +271,18 @@ untouched unless the user opts in.
   `rgb`/`alpha`/`alpha2`/`vectorPixbuf` members in general) are never
   freed in `~XImlib2Image()` -- a real but low-impact leak, since icons
   are loaded once at startup, not per-frame. Worth a follow-up pass.
+- **`arrangeIcons()` placed icons off-screen (not just overlapping) once
+  there were more than fit in one pass.** Found by copying ~100 real
+  `.desktop` files into `~/Desktop` as a stress test: only ~40 icons
+  were visible, the rest existed (clickable if you knew where to drag
+  blindly) but sat at a negative X, past the left edge of the screen --
+  the old column-wrap (`iconX -= 20 + maxW`) never stopped or wrapped
+  back. Rewritten to compute how many icons actually fit on screen in
+  one pass (`capacity = columns * rows`, using the same spacing the
+  placement loop already uses) and reuse those same slots for any
+  extra icons, offsetting each full "layer" by a small `+15px` X/Y
+  shift -- a fanned-stack look, always on-screen, never lost. This
+  matters for the layout-DB work below: capturing an icon's
+  `arrangeIcons()`-assigned position as its seed would otherwise have
+  permanently saved an off-screen position for anything past the
+  ~40th icon.
