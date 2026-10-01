@@ -24,6 +24,10 @@
 
 #include "Misc.h"
 #include <unistd.h>
+#include <dirent.h>
+#include <fstream>
+#include <vector>
+#include <sys/stat.h>
 
 extern char ** args;
 
@@ -46,26 +50,93 @@ string itos(int i) // convert int to string
  return s.str();
 }
 
+// Reads the icon theme the user actually has configured, so icon lookup
+// doesn't have to guess a theme name that happens to match whichever
+// distro this was developed/tested on. Checked in order: GTK3/GTK4
+// settings.ini, the older GTK2 .gtkrc-2.0, then KDE Plasma's
+// kdeglobals. Returns "" if none of these exist or none set a theme --
+// a perfectly normal case on a minimal install that never had a full
+// GNOME/KDE/XFCE session configure one.
+static string getConfiguredIconThemeName()
+{
+    char * home = getenv("HOME");
+    if (!home)
+        return "";
+
+    struct Candidate { string file; string key; };
+    Candidate candidates[] = {
+        { string(home) + "/.config/gtk-4.0/settings.ini", "gtk-icon-theme-name" },
+        { string(home) + "/.config/gtk-3.0/settings.ini", "gtk-icon-theme-name" },
+        { string(home) + "/.gtkrc-2.0", "gtk-icon-theme-name" },
+        { string(home) + "/.config/kdeglobals", "Theme" },
+    };
+
+    for (size_t c = 0; c < sizeof(candidates)/sizeof(candidates[0]); c++)
+    {
+        ifstream f(candidates[c].file.c_str());
+        if (!f.is_open())
+            continue;
+
+        string line;
+        while (getline(f, line))
+        {
+            size_t keyPos = line.find(candidates[c].key);
+            if (keyPos == string::npos)
+                continue;
+
+            size_t eq = line.find('=', keyPos);
+            if (eq == string::npos)
+                continue;
+
+            string value = line.substr(eq + 1);
+            // strip whitespace and any quotes (.gtkrc-2.0 quotes its values)
+            size_t a = value.find_first_not_of(" \t\"'");
+            size_t b = value.find_last_not_of(" \t\"'\r\n");
+            if (a == string::npos)
+                continue;
+
+            f.close();
+            return value.substr(a, b - a + 1);
+        }
+        f.close();
+    }
+
+    return "";
+}
+
+// Discovers icon themes actually installed on this system by looking for
+// a directory containing an index.theme file -- the one thing every real
+// icon theme is required to have, regardless of what it's named. This is
+// what makes icon lookup work on a distro/theme combination nobody ever
+// tested this on: a hardcoded theme name list would silently find
+// nothing everywhere. "hicolor" is deliberately excluded here -- the
+// caller always tries it last, separately, as the universal fallback.
+static void listInstalledThemes(const string & dir, vector<string> & themes)
+{
+    DIR * d = opendir(dir.c_str());
+    if (!d)
+        return;
+
+    struct dirent * entry;
+    while ((entry = readdir(d)) != NULL)
+    {
+        string name = entry->d_name;
+        if (name == "." || name == ".." || name == "hicolor")
+            continue;
+
+        string indexFile = dir + "/" + name + "/index.theme";
+        struct stat st;
+        if (stat(indexFile.c_str(), &st) == 0)
+            themes.push_back(name);
+    }
+    closedir(d);
+}
+
 string resolveIconThemeName(const string & name)
 {
     if (name.empty())
         return "";
 
-    // Built as theme x size x category combinations rather than a long
-    // hand-written path list. Themes are tried in priority order:
-    //   - Yaru: Ubuntu's actual default icon theme since 18.04 -- found
-    //     to be where real icons live on a stock Ubuntu install (e.g.
-    //     preferences-system-network only existed here and in Adwaita's
-    //     differently-named -symbolic variant, not under the bare name
-    //     this function is asked to resolve).
-    //   - Adwaita: GNOME's own theme, still common and what many
-    //     third-party apps ship assuming.
-    //   - hicolor: the spec-mandated universal fallback theme, but
-    //     confirmed near-empty on a real system -- kept last.
-    // "categories/" (control-panel/settings sections, where
-    // preferences-system-network lives) is a real icon context alongside
-    // the more obvious apps/mimetypes/places/status.
-    static const char * themes[] = { "Yaru", "Adwaita", "hicolor", NULL };
     static const char * sizes[] = { "256x256", "128x128", "48x48", "scalable", NULL };
     static const char * categories[] = { "apps", "mimetypes", "places", "status", "categories", NULL };
     static const char * candidateExts[] = { ".png", ".svg", ".xpm", NULL };
@@ -80,7 +151,35 @@ string resolveIconThemeName(const string & name)
         }
     }
 
-    for (int t = 0; themes[t]; t++)
+    // Build the theme search order without assuming which distro or
+    // desktop this is running on:
+    //   1. whatever the user actually has configured (GTK/KDE settings),
+    //      if anything -- the one choice guaranteed to match what they
+    //      see everywhere else on their system
+    //   2. every theme actually installed under /usr/share/icons,
+    //      ~/.local/share/icons, ~/.icons (anything with an index.theme),
+    //      discovered rather than guessed by name -- this is what makes
+    //      lookup work on a theme (Yaru, breeze, Papirus, elementary,
+    //      whatever) nobody hardcoded a name for
+    //   3. hicolor last, always -- the one theme the spec guarantees
+    //      exists, even though it's usually near-empty in practice
+    vector<string> themes;
+
+    string configured = getConfiguredIconThemeName();
+    if (!configured.empty())
+        themes.push_back(configured);
+
+    char * home = getenv("HOME");
+    listInstalledThemes("/usr/share/icons", themes);
+    if (home)
+    {
+        listInstalledThemes(string(home) + "/.local/share/icons", themes);
+        listInstalledThemes(string(home) + "/.icons", themes);
+    }
+
+    themes.push_back("hicolor");
+
+    for (size_t t = 0; t < themes.size(); t++)
     {
         for (int s = 0; sizes[s]; s++)
         {

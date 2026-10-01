@@ -339,3 +339,30 @@ untouched unless the user opts in.
   resolution (no theme inheritance, no index.theme parsing, no
   `-symbolic` suffix variants tried) -- see the function's own header
   comment for the current scope.
+- **Icon theme lookup was hardcoded to Ubuntu-specific theme names
+  (Yaru, Adwaita), which would find nothing at all on a different
+  distro/DE.** Raised directly: all real testing this session happened
+  on Ubuntu, the one distro at hand -- but idesk-ng's actual target
+  users run arbitrary WMs (Openbox, Fluxbox, i3...) on arbitrary
+  distros, often after removing GNOME/KDE/XFCE entirely, where neither
+  Yaru nor even Adwaita may exist, and where even the `image-missing`
+  fallback could itself fail to resolve -- silently regressing back to
+  the "whole icon discarded" bug just fixed, just on a different
+  distro. Rewrote `resolveIconThemeName()` to never hardcode a theme
+  name again:
+  1. reads the user's actually-configured theme first, if any
+     (`~/.config/gtk-4.0|gtk-3.0/settings.ini`, `~/.gtkrc-2.0`,
+     `~/.config/kdeglobals` -- covers GNOME, XFCE's GTK-based config,
+     and KDE Plasma);
+  2. discovers every theme genuinely installed under
+     `/usr/share/icons`, `~/.local/share/icons`, `~/.icons` by looking
+     for an `index.theme` file -- the one thing every real icon theme
+     is required to have, regardless of its name (Yaru, breeze,
+     Papirus, elementary, anything);
+  3. tries `hicolor` last, always, as the one theme the spec
+     guarantees exists.
+  Verified on a sandbox with no Yaru installed: dynamic discovery found
+  8 themes (Adwaita, Humanity, Humanity-Dark, LoginIcons, default,
+  hicolor, ubuntu-mono-dark, ubuntu-mono-light) with zero names
+  hardcoded, and `text-x-generic` still resolved correctly -- no
+  regression.
