@@ -169,7 +169,11 @@ bool XImlib2Image::createPictureFromSvg()
                       ((DATA32)rgb[i*3+1] << 8) | (DATA32)rgb[i*3+2];
 
     image = imlib_create_image_using_data(width, height, argbData);
-    imlib_image_set_has_alpha(1);
+    if (image)
+    {
+        imlib_context_set_image(image);
+        imlib_image_set_has_alpha(1);
+    }
 
     if (!image) {
         cerr << "Cannot create image from SVG pixbuf data" << endl;
