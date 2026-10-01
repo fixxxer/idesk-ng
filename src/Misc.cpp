@@ -74,6 +74,8 @@ string resolveIconThemeName(const string & name)
         "/usr/share/icons/Adwaita/scalable/mimetypes/",
         "/usr/share/icons/Adwaita/48x48/places/",
         "/usr/share/icons/Adwaita/scalable/places/",
+        "/usr/share/icons/Adwaita/scalable/status/",
+        "/usr/share/icons/hicolor/scalable/status/",
         NULL
     };
     static const char * candidateExts[] = { ".png", ".svg", ".xpm", NULL };
@@ -86,6 +88,23 @@ string resolveIconThemeName(const string & name)
             if (access(path.c_str(), F_OK) == 0)
                 return path;
         }
+    }
+
+    // Nothing matched the requested name. Falling back to "" here used
+    // to silently discard the whole icon downstream -- XIcon's isRaster()
+    // /isSvg() both reject an empty filename as "Unknown file format"
+    // and mark the icon invalid entirely (caption and all), not merely
+    // picture-less, despite what this function's own caller warns
+    // ("icon will be blank"). Rather than touch that deeply-coupled,
+    // null-unsafe rendering code, fall back to "image-missing" -- the
+    // actual freedesktop.org Icon Naming Specification name for exactly
+    // this situation ("an image that could not be loaded"), which
+    // real icon themes are expected to ship -- before giving up.
+    if (name != "image-missing")
+    {
+        string fallback = resolveIconThemeName("image-missing");
+        if (!fallback.empty())
+            return fallback;
     }
 
     return "";

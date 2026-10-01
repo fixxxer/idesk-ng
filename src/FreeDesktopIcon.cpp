@@ -78,7 +78,10 @@ string FreeDesktopIcon::stripExecFieldCodes(const string & exec)
 string FreeDesktopIcon::resolveIconPath(const string & icon)
 {
     if (icon.empty())
-        return "";
+        return resolveIconThemeName("image-missing"); // no Icon= at all --
+            // still try the generic fallback rather than leaving this
+            // icon with no picture, which XIcon treats as invalid
+            // entirely (see Misc.cpp's resolveIconThemeName for why)
 
     if (icon[0] == '/')
         return icon;

@@ -286,3 +286,27 @@ untouched unless the user opts in.
   `arrangeIcons()`-assigned position as its seed would otherwise have
   permanently saved an off-screen position for anything past the
   ~40th icon.
+- **An icon whose Icon= name resolved to nothing (empty string) was
+  silently discarded entirely, not just shown without a picture.**
+  Traced the "Unknown file format: " warnings (empty filename after the
+  colon) that had shown up in every real test this session straight to
+  `XIcon`'s constructor: `isRaster()`/`isSvg()` both reject an empty
+  filename, hit the `else` branch, and set `valid = false` -- which
+  discards the whole icon (caption included), not merely its picture,
+  despite the resolver's own warning claiming "icon will be blank."
+  There's even a pre-existing `// TODO: implement way to skip icon and
+  not segfault` comment right there acknowledging the gap. Accounted
+  for exactly the small gap (~5 icons) between "not Hidden/NoDisplay"
+  and "actually visible" in the ~100-icon stress test.
+  Fixing `XIcon` itself was ruled out as too risky for how it was
+  found: `image->` is dereferenced unconditionally in 13+ places in
+  that file with no null checks, and there's no real X session in this
+  environment to exercise every one of those paths after a change.
+  Fixed upstream instead, in `resolveIconThemeName()` (now shared by
+  both `FreeDesktopIcon` and `GenericFileIcon`): when nothing matches
+  the requested name, fall back to `image-missing` -- the actual
+  freedesktop.org Icon Naming Specification name for exactly this
+  situation, which real icon themes ship (found under `.../status/`,
+  a candidate directory this lookup didn't search before). This keeps
+  `getPictureFilename()` non-empty for any well-formed icon, so the
+  `XIcon` discard path this was feeding simply never triggers.
