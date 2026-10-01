@@ -151,7 +151,25 @@ bool XImlib2Image::createPictureFromSvg()
         }
     }
 
-    image = imlib_create_image_using_data(width, height, (unsigned int *)origPixbufRgb);
+    // imlib_create_image_using_data() expects a packed 32-bit ARGB buffer
+    // (0xAARRGGBB per pixel) -- NOT gdk-pixbuf's raw R,G,B,A byte layout.
+    // The previous version passed origPixbufRgb (gdk-pixbuf's own buffer)
+    // straight through, completely bypassing the rgb[]/alpha[] arrays just
+    // computed above: Imlib2 misread gdk-pixbuf's bytes as if they were
+    // already ARGB32, misinterpreting which byte was the alpha channel.
+    // The visible symptom (found on real hardware): every SVG-sourced icon
+    // rendered with its transparent margin as solid opaque black instead
+    // of correctly showing the desktop background through it, while
+    // PNG/XPM icons (loaded by Imlib2's own native loader, never touching
+    // this function) looked correct. Build the real buffer from the
+    // already-computed rgb[]/alpha[] arrays instead.
+    DATA32 * argbData = new DATA32[width * height];
+    for (int i = 0; i < width * height; i++)
+        argbData[i] = ((DATA32)alpha[i] << 24) | ((DATA32)rgb[i*3] << 16) |
+                      ((DATA32)rgb[i*3+1] << 8) | (DATA32)rgb[i*3+2];
+
+    image = imlib_create_image_using_data(width, height, argbData);
+    imlib_image_set_has_alpha(1);
 
     if (!image) {
         cerr << "Cannot create image from SVG pixbuf data" << endl;

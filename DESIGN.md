@@ -254,3 +254,20 @@ untouched unless the user opts in.
   combined with forced bold this looked noticeably worse than it should.
   Changed the example to `FontName: Sans` (a fontconfig alias that
   always resolves to a real installed sans font) and `Bold: false`.
+- **SVG icons rendered their transparent margin as solid opaque black.**
+  `createPictureFromSvg()` carefully computed `rgb[]`/`alpha[]` arrays
+  with a transparency matrix, then never used them -- it built the final
+  Imlib2 image straight from gdk-pixbuf's own raw buffer
+  (`origPixbufRgb`), cast directly to `unsigned int *`. gdk-pixbuf's
+  byte layout (R,G,B,A per byte) is not Imlib2's expected packed 32-bit
+  `0xAARRGGBB`, so Imlib2 read the wrong byte as alpha, making
+  transparent regions opaque. Visible symptom on real hardware: every
+  icon resolved from an SVG (most of Adwaita) showed a solid black box
+  around its glyph; icons resolved from PNG/XPM (loaded by Imlib2's own
+  native loader, which never goes through this function) looked
+  correct. Fixed by actually packing `rgb[]`/`alpha[]` into a real
+  ARGB32 buffer instead of reusing gdk-pixbuf's raw bytes.
+  Known pre-existing issue, not addressed here: this function (and the
+  `rgb`/`alpha`/`alpha2`/`vectorPixbuf` members in general) are never
+  freed in `~XImlib2Image()` -- a real but low-impact leak, since icons
+  are loaded once at startup, not per-frame. Worth a follow-up pass.
