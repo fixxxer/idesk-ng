@@ -210,6 +210,7 @@ void XDesktopContainer::loadIcons()
 
 void XDesktopContainer::arrangeIcons()
 {
+    DesktopConfig * dConfig = dynamic_cast<DesktopConfig *>(config);
     int maxW = 0, maxRowStep = 0;
 
     if( iconList.size() == 0 )
@@ -232,14 +233,14 @@ void XDesktopContainer::arrangeIcons()
     // with. Past this many un-positioned icons, further ones reuse the
     // same slots again with a small X/Y shift per "layer" (like a
     // fanned stack of cards) instead of continuing to add columns past
-    // the left edge of the screen.
+    // the edge of the screen.
     //
     // Found on real hardware with ~100 real .desktop files copied into
     // ~/Desktop as a stress test: the old unbounded "iconX -= 20+maxW"
     // column-wrap never stopped, so once there were more icons than fit
-    // in one pass, the rest landed at a negative X -- off-screen and
-    // completely unreachable, not merely overlapping. ~40 icons were
-    // visible; the other ~60 existed but were invisible.
+    // in one pass, the rest landed off-screen -- completely unreachable,
+    // not merely overlapping. ~40 icons were visible; the rest existed
+    // but weren't.
     int columns = (widthOfScreen() - 20) / (maxW + 20);
     if (columns < 1) columns = 1;
     int rows = (heightOfScreen() - 20) / maxRowStep;
@@ -247,6 +248,20 @@ void XDesktopContainer::arrangeIcons()
     int capacity = columns * rows;
 
     const int shiftStep = 15; // px of X/Y offset per extra layer
+
+    // Which corner the grid starts in, and which way it grows, both
+    // follow the SAME ideskrc SnapOrigin setting (TopLeft/TopRight/
+    // BottomLeft/BottomRight) that drag-to-grid snapping already uses
+    // (see XIcon.cpp) -- arrangeIcons() used to ignore it completely
+    // and always start top-right, growing left, no matter what
+    // SnapOrigin said.
+    bool fromLeft = dConfig->getStartSnapLeft();
+    bool fromTop = dConfig->getStartSnapTop();
+
+    int dirX = fromLeft ? 1 : -1;
+    int dirY = fromTop ? 1 : -1;
+    int originX = fromLeft ? 20 : widthOfScreen() - maxW - 20;
+    int originY = fromTop ? 20 : heightOfScreen() - maxRowStep;
 
     int slot = 0;
     for(unsigned int i = 0; i < iconList.size(); i++ )
@@ -260,13 +275,15 @@ void XDesktopContainer::arrangeIcons()
             int col = posInLayer / rows;
             int row = posInLayer % rows;
 
-            int baseX = widthOfScreen() - maxW - 20 - col * (maxW + 20);
-            int baseY = 20 + row * maxRowStep;
+            int baseX = originX + dirX * col * (maxW + 20);
+            int baseY = originY + dirY * row * maxRowStep;
 
-            int finalX = baseX + layer * shiftStep;
-            int finalY = baseY + layer * shiftStep;
+            int finalX = baseX + dirX * layer * shiftStep;
+            int finalY = baseY + dirY * layer * shiftStep;
             if (finalX < 20)
                 finalX = 20; // defensive floor for pathological screen/icon sizes
+            if (finalY < 20)
+                finalY = 20;
 
             iPtr->setX(finalX + ((maxW - iPtr->getWidth())/2));
             iPtr->setY(finalY);
