@@ -51,42 +51,50 @@ string resolveIconThemeName(const string & name)
     if (name.empty())
         return "";
 
-    static const char * candidateDirs[] = {
-        "/usr/share/pixmaps/",
-        "/usr/share/icons/hicolor/256x256/apps/",
-        "/usr/share/icons/hicolor/128x128/apps/",
-        "/usr/share/icons/hicolor/48x48/apps/",
-        "/usr/share/icons/hicolor/scalable/apps/",
-        "/usr/share/icons/hicolor/48x48/mimetypes/",
-        "/usr/share/icons/hicolor/scalable/mimetypes/",
-        "/usr/share/icons/hicolor/48x48/places/",
-        "/usr/share/icons/hicolor/scalable/places/",
-        // hicolor is the spec-mandated fallback theme, but on most real
-        // systems it's near-empty -- Adwaita (GNOME/Ubuntu/many others'
-        // actual default) is where the real files live. Confirmed by
-        // testing against a real filesystem: hicolor had none of these,
-        // Adwaita had all of them.
-        "/usr/share/icons/Adwaita/256x256/apps/",
-        "/usr/share/icons/Adwaita/128x128/apps/",
-        "/usr/share/icons/Adwaita/48x48/apps/",
-        "/usr/share/icons/Adwaita/scalable/apps/",
-        "/usr/share/icons/Adwaita/48x48/mimetypes/",
-        "/usr/share/icons/Adwaita/scalable/mimetypes/",
-        "/usr/share/icons/Adwaita/48x48/places/",
-        "/usr/share/icons/Adwaita/scalable/places/",
-        "/usr/share/icons/Adwaita/scalable/status/",
-        "/usr/share/icons/hicolor/scalable/status/",
-        NULL
-    };
+    // Built as theme x size x category combinations rather than a long
+    // hand-written path list. Themes are tried in priority order:
+    //   - Yaru: Ubuntu's actual default icon theme since 18.04 -- found
+    //     to be where real icons live on a stock Ubuntu install (e.g.
+    //     preferences-system-network only existed here and in Adwaita's
+    //     differently-named -symbolic variant, not under the bare name
+    //     this function is asked to resolve).
+    //   - Adwaita: GNOME's own theme, still common and what many
+    //     third-party apps ship assuming.
+    //   - hicolor: the spec-mandated universal fallback theme, but
+    //     confirmed near-empty on a real system -- kept last.
+    // "categories/" (control-panel/settings sections, where
+    // preferences-system-network lives) is a real icon context alongside
+    // the more obvious apps/mimetypes/places/status.
+    static const char * themes[] = { "Yaru", "Adwaita", "hicolor", NULL };
+    static const char * sizes[] = { "256x256", "128x128", "48x48", "scalable", NULL };
+    static const char * categories[] = { "apps", "mimetypes", "places", "status", "categories", NULL };
     static const char * candidateExts[] = { ".png", ".svg", ".xpm", NULL };
 
-    for (int d = 0; candidateDirs[d]; d++)
+    if (access("/usr/share/pixmaps/", F_OK) == 0)
     {
         for (int e = 0; candidateExts[e]; e++)
         {
-            string path = string(candidateDirs[d]) + name + candidateExts[e];
+            string path = string("/usr/share/pixmaps/") + name + candidateExts[e];
             if (access(path.c_str(), F_OK) == 0)
                 return path;
+        }
+    }
+
+    for (int t = 0; themes[t]; t++)
+    {
+        for (int s = 0; sizes[s]; s++)
+        {
+            for (int c = 0; categories[c]; c++)
+            {
+                for (int e = 0; candidateExts[e]; e++)
+                {
+                    string path = string("/usr/share/icons/") + themes[t] + "/" +
+                                  sizes[s] + "/" + categories[c] + "/" +
+                                  name + candidateExts[e];
+                    if (access(path.c_str(), F_OK) == 0)
+                        return path;
+                }
+            }
         }
     }
 
