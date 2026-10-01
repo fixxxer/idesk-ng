@@ -401,3 +401,25 @@ untouched unless the user opts in.
   command execution stays exactly as safe as it always was. Verified:
   completes in well under 0.1s, no hang, correct result either way
   (schema present or not).
+- **`XImlib2Background::spareRoot` was never initialized, and the root-
+  pixmap-race fix (several commits back) exposed it as a real,
+  reproducible segfault.** Caught with `gdb -ex run -ex bt`, full
+  backtrace: `imlib_free_image()` crashed inside
+  `XImlib2Background::Refresh()`, called from
+  `XDesktopContainer::getRootImage()`. `Refresh()` has always had a
+  `if (spareRoot) { ...; imlib_free_image(); }` guard before
+  overwriting it -- correct IF `spareRoot` starts as `NULL`, which nothing
+  in the constructor's initializer list ever set it to. This was a
+  latent landmine in the original code (never triggered historically,
+  because `Refresh()` was only ever called *after* `InitSpareRoot()` had
+  already assigned `spareRoot` a real value), and the earlier fix that
+  made `getRootImage()` try `Refresh()` *first* on a freshly-constructed
+  object stepped directly on it: the `if(spareRoot)` check read
+  uninitialized stack/heap garbage, happened to be non-zero, and
+  `imlib_free_image()` was handed a bogus pointer.
+  This also explains why it reproduced only *outside* gdb at first --
+  a garbage read being non-zero is exactly the kind of thing that can
+  vary with process layout, which a debugger attaching can shift
+  without changing anything in the code.
+  Fixed by adding `spareRoot(NULL)` to the constructor's initializer
+  list, same as every other pointer member already there.
