@@ -29,7 +29,7 @@
 
 XImlib2Background::XImlib2Background(AbstractContainer * c, AbstractConfig * con): TimerControl(), 
                                                     container(c), config(con),delay(0), mode(0),  save(NULL), show(NULL),
-						    srctime(0), images(""), directory(""), OneShot(false)
+						    srctime(0), images(""), directory(""), OneShot(false), spareRoot(NULL)
 {
      cmap = imlib_context_get_colormap();
      visual = imlib_context_get_visual();
