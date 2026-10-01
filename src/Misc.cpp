@@ -28,6 +28,7 @@
 #include <fstream>
 #include <vector>
 #include <sys/stat.h>
+#include <gio/gio.h>
 
 extern char ** args;
 
@@ -48,6 +49,40 @@ string itos(int i) // convert int to string
  stringstream s;
  s << i;
  return s.str();
+}
+
+// Reads the icon theme straight from GNOME's own setting via GSettings/
+// dconf (org.gnome.desktop.interface icon-theme) -- the actual source
+// of truth on any GNOME-based system (Ubuntu included), set even on a
+// system that has never run a full GNOME session. ~/.config/gtk-3.0/
+// settings.ini (checked separately, see getConfiguredIconThemeName())
+// is only a *copy* of this, written out by gnome-settings-daemon's
+// xsettings sync -- which never runs for someone who only ever logs
+// into Openbox/Fluxbox/etc, exactly the audience this project targets.
+// Found on real hardware: that file plain doesn't exist on an Ubuntu
+// install that's only ever been used through Openbox. Checking the
+// schema exists first avoids a glib warning on a system that never had
+// GNOME's schemas installed at all (gsettings-desktop-schemas).
+static string getGSettingsIconThemeName()
+{
+    GSettingsSchemaSource * source = g_settings_schema_source_get_default();
+    if (!source)
+        return "";
+
+    GSettingsSchema * schema =
+        g_settings_schema_source_lookup(source, "org.gnome.desktop.interface", TRUE);
+    if (!schema)
+        return "";
+    g_settings_schema_unref(schema);
+
+    GSettings * settings = g_settings_new("org.gnome.desktop.interface");
+    gchar * value = g_settings_get_string(settings, "icon-theme");
+    string result = value ? value : "";
+    if (value)
+        g_free(value);
+    g_object_unref(settings);
+
+    return result;
 }
 
 // Reads the icon theme the user actually has configured, so icon lookup
@@ -165,7 +200,9 @@ string resolveIconThemeName(const string & name)
     //      exists, even though it's usually near-empty in practice
     vector<string> themes;
 
-    string configured = getConfiguredIconThemeName();
+    string configured = getGSettingsIconThemeName();
+    if (configured.empty())
+        configured = getConfiguredIconThemeName();
     if (!configured.empty())
         themes.push_back(configured);
 

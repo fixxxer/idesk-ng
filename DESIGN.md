@@ -366,3 +366,18 @@ untouched unless the user opts in.
   hicolor, ubuntu-mono-dark, ubuntu-mono-light) with zero names
   hardcoded, and `text-x-generic` still resolved correctly -- no
   regression.
+- **The configured-theme file check alone wasn't enough, even on
+  Ubuntu.** Found immediately on real hardware: `~/.config/gtk-3.0/
+  settings.ini` doesn't exist at all on an Ubuntu install that's only
+  ever been used through Openbox. That file is just a *copy*, written
+  out by `gnome-settings-daemon`'s xsettings sync when a full GNOME
+  session runs -- which never happens for this project's actual
+  audience. The real source of truth on any GNOME-based system
+  (Ubuntu included) is GSettings/dconf
+  (`org.gnome.desktop.interface icon-theme`), set from first boot
+  regardless of whether GNOME Shell has ever actually run. Added
+  `getGSettingsIconThemeName()`, tried first via GIO (already linked,
+  no new dependency) -- checks the schema actually exists before
+  querying it, so it fails quietly rather than warning on a system
+  that never had GNOME's schemas installed at all. Verified: no
+  warning or crash on this sandbox, which has no GNOME schemas either.
