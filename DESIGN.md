@@ -310,3 +310,17 @@ untouched unless the user opts in.
   a candidate directory this lookup didn't search before). This keeps
   `getPictureFilename()` non-empty for any well-formed icon, so the
   `XIcon` discard path this was feeding simply never triggers.
+- **`arrangeIcons()` always started top-right and grew left, ignoring
+  `SnapOrigin`.** `SnapOrigin` (`TopLeft`/`TopRight`/`BottomLeft`/
+  `BottomRight`) already existed and was already wired into drag-to-grid
+  snapping (`XIcon`/`XIconWithShadow`'s use of `getStartSnapLeft()`/
+  `getStartSnapTop()`), but `arrangeIcons()` never consulted it for the
+  *initial* auto-placement -- it hardcoded starting at the top-right
+  corner and growing leftward no matter what the config said. Rewrote
+  the grid math (origin point + growth direction, both derived from
+  `getStartSnapLeft()`/`getStartSnapTop()`) so initial placement and
+  drag-snapping now agree with each other and with `SnapOrigin`. A
+  `Center` origin was considered and deliberately not added here --
+  centering needs a fundamentally different fill pattern (rings/spiral
+  outward) rather than a corner + growth direction, so it would be a
+  separate algorithm, not a small extension of this one.
