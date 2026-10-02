@@ -290,6 +290,21 @@ void DesktopConfig::scanIconDirectory(const string & dir, bool warnOnUnrecognize
 						fdi.Set("X", itos(savedX));
 						fdi.Set("Y", itos(savedY));
 					}
+					else if (!fdi.Query("X-Idesk-X").empty() || !fdi.Query("X-Idesk-Y").empty())
+					{
+						// Path B (see DESIGN.md): the layout DB has never seen
+						// this icon before, but the .desktop file itself asks
+						// for a specific starting position. Use it, and seed
+						// the layout DB immediately so this branch is never
+						// taken again for this icon -- from here on it behaves
+						// exactly like any other saved position, including
+						// being overridden by dragging.
+						int seedX = atoi(fdi.Query("X-Idesk-X").c_str());
+						int seedY = atoi(fdi.Query("X-Idesk-Y").c_str());
+						fdi.Set("X", itos(seedX));
+						fdi.Set("Y", itos(seedY));
+						seedLayoutPosition(filename, seedX, seedY);
+					}
 					DesktopIconConfig *iconPtr = new DesktopIconConfig(filename, fdi, common);
 					iconPtr->setOrigin(DesktopIconConfig::ORIGIN_LAYOUT_DB);
 					iconConfigList.push_back(iconPtr);

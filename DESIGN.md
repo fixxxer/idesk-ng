@@ -508,3 +508,29 @@ that gets renamed is a new path to the layout DB and starts fresh,
 same as DESIGN.md's "Legacy / standard icon support" section already
 called out as an accepted trade-off matching GNOME/KDE/XFCE's own
 behavior.
+
+## Point 3, Path B: `X-Idesk-X`/`X-Idesk-Y` -- DONE
+
+Narrow but real use case: provisioning a machine (or a dotfiles repo)
+with `.desktop` files that should appear at a specific position the
+very first time idesk-ng ever sees them, without needing to run
+`--migrate-to-desktop` or drag anything by hand first.
+
+`FreeDesktopIcon` now parses `X-Idesk-X`/`X-Idesk-Y` alongside the
+existing `X-Idesk-Width`/`Height`, but deliberately exposes them under
+their own key names rather than as `"X"`/`"Y"` directly -- if it set
+those unconditionally, *every* load of the file would re-apply them,
+overriding anywhere the user had since dragged the icon to.
+`DesktopConfig::scanIconDirectory()` decides whether to apply them: only
+when `getLayoutPosition()` finds nothing for this path yet (first
+sighting). When applied, the position is written into the layout DB in
+that same moment, so this branch can never fire again for this icon --
+from then on it behaves exactly like any other saved position,
+including being overridden by a drag.
+
+Verified end-to-end: a `.desktop` with `X-Idesk-X=555`/`X-Idesk-Y=222`
+and no prior layout DB entry loaded at exactly that position on first
+sight, and seeded the layout DB with it. Then, with the `.desktop`'s
+own `X-Idesk-X`/`Y` values changed to something else entirely, a second
+run still came back at the original 555,222 -- confirming the layout
+DB, once seeded, wins over the file every time afterward.
