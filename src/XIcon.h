@@ -71,6 +71,7 @@ class XIcon : public AbstractIcon
         
         AbstractImage * getImage();
         AbstractCaption * getCaption();
+        AbstractIconConfig * getIconConfig() { return iconConfig; }
 
         int getX() { return x; }
         int getY() { return y; }

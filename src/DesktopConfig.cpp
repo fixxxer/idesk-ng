@@ -26,6 +26,8 @@
 #include "Util.h"
 #include "FreeDesktopIcon.h"
 #include "GenericFileIcon.h"
+#include "IconLayout.h"
+#include "Misc.h"
 #include <sys/stat.h>
 
 // the initializer list just sets the program defaults for non-necessary options
@@ -247,11 +249,13 @@ void DesktopConfig::scanIconDirectory(const string & dir, bool warnOnUnrecognize
 
     for(int i = 0; i < fileCount; i++)
     {
-        if (!excludeFilename.empty() && string(files[i]->d_name) == excludeFilename)
+        string entryName = files[i]->d_name;
+        if ((!excludeFilename.empty() && entryName == excludeFilename) ||
+            entryName == "layout.db")
         {
             free(files[i]);
-            continue; // this is ideskrc itself, living alongside the icons
-                      // -- not an icon, and not even worth a warning about
+            continue; // ideskrc and layout.db live alongside the icons
+                      // -- neither is one, not even worth a warning about
         }
 
         if (!backgroundFile(files[i]->d_name))
@@ -266,6 +270,7 @@ void DesktopConfig::scanIconDirectory(const string & dir, bool warnOnUnrecognize
 				if (table.isValid())
 				{   
 					DesktopIconConfig *iconPtr = new DesktopIconConfig(filename, table, common); 
+					iconPtr->setOrigin(DesktopIconConfig::ORIGIN_LNK);
 					iconConfigList.push_back(iconPtr);
 				} else
 					cerr << "Error: \"" << files[i]->d_name << "\" is not a valid .lnk desktop icon\n";
@@ -275,7 +280,18 @@ void DesktopConfig::scanIconDirectory(const string & dir, bool warnOnUnrecognize
 
 				if (fdi.isValid() && fdi.shouldDisplay())
 				{
+					// A previously-seeded position (from --migrate-to-desktop,
+					// or from this same icon being dragged on an earlier run)
+					// takes priority over whatever the .desktop itself says --
+					// arrangeIcons() only auto-places an icon still at (0,0).
+					int savedX, savedY;
+					if (getLayoutPosition(filename, savedX, savedY))
+					{
+						fdi.Set("X", itos(savedX));
+						fdi.Set("Y", itos(savedY));
+					}
 					DesktopIconConfig *iconPtr = new DesktopIconConfig(filename, fdi, common);
+					iconPtr->setOrigin(DesktopIconConfig::ORIGIN_LAYOUT_DB);
 					iconConfigList.push_back(iconPtr);
 				} else if (!fdi.isValid())
 					cerr << "Error: \"" << files[i]->d_name << "\" is not a valid .desktop desktop icon\n";
@@ -290,7 +306,14 @@ void DesktopConfig::scanIconDirectory(const string & dir, bool warnOnUnrecognize
 				// and a directory's own d_name naturally never ends in
 				// .lnk or .desktop, so it reaches this branch too.
 				GenericFileIcon gfi(filename);
+				int savedX, savedY;
+				if (getLayoutPosition(filename, savedX, savedY))
+				{
+					gfi.Set("X", itos(savedX));
+					gfi.Set("Y", itos(savedY));
+				}
 				DesktopIconConfig *iconPtr = new DesktopIconConfig(filename, gfi, common);
+				iconPtr->setOrigin(DesktopIconConfig::ORIGIN_LAYOUT_DB);
 				iconConfigList.push_back(iconPtr);
 			}
 			// else: Desktop.AutoIcons is off -- a plain file that isn't
