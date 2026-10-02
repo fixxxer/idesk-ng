@@ -56,10 +56,14 @@ using namespace std;
  *    separate, larger piece of work -- see DESIGN.md.
  *
  * The vendor extension keys X-Idesk-Width / X-Idesk-Height are read into
- * Width / Height. X-Idesk-X / X-Idesk-Y are intentionally NOT read here:
- * per DESIGN.md, position is seeded into iDesk-NG's own layout database
- * the first time an icon is discovered, never re-read from the .desktop
- * file on every load.
+ * Width / Height directly. X-Idesk-X / X-Idesk-Y (Path B, see
+ * DESIGN.md) are parsed too, but deliberately exposed under their own
+ * key names rather than as "X"/"Y" -- DesktopConfig::scanIconDirectory()
+ * decides whether to apply them, and only does so the first time this
+ * icon is seen (not yet in the layout DB). Once a position exists there
+ * (from this seed, from arrangeIcons(), or from the user dragging the
+ * icon), it always wins over whatever the .desktop file says -- the
+ * file is never re-read for position after that.
  */
 class FreeDesktopIcon : public Table
 {

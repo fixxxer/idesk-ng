@@ -109,7 +109,7 @@ FreeDesktopIcon::FreeDesktopIcon(const string & filename) : Table()
     bool sawDesktopEntryGroup = false;
 
     string type, name, comment, exec, tryExec, url, icon;
-    string hidden, noDisplay, xIdeskWidth, xIdeskHeight;
+    string hidden, noDisplay, xIdeskWidth, xIdeskHeight, xIdeskX, xIdeskY;
 
     string line;
     while (getline(file, line))
@@ -160,6 +160,10 @@ FreeDesktopIcon::FreeDesktopIcon(const string & filename) : Table()
             hidden = value;
         else if (key == "NoDisplay")
             noDisplay = value;
+        else if (key == "X-Idesk-X")
+            xIdeskX = value;
+        else if (key == "X-Idesk-Y")
+            xIdeskY = value;
         else if (key == "X-Idesk-Width")
             xIdeskWidth = value;
         else if (key == "X-Idesk-Height")
@@ -226,4 +230,17 @@ FreeDesktopIcon::FreeDesktopIcon(const string & filename) : Table()
     // desktop icon size and gives something reasonable to look at.
     Set("Width", xIdeskWidth.empty() ? "48" : xIdeskWidth);
     Set("Height", xIdeskHeight.empty() ? "48" : xIdeskHeight);
+
+    // Deliberately NOT exposed as "X"/"Y" -- DesktopIconConfig reads those
+    // directly via atoi(Query("X")), and if FreeDesktopIcon set them
+    // unconditionally here, every single load of this .desktop would
+    // re-apply whatever position was written into the file, overriding
+    // anywhere the user has since dragged it to. Exposed under their own
+    // key names instead; the caller (DesktopConfig::scanIconDirectory())
+    // decides whether to apply them -- only the first time this icon is
+    // seen (not yet in the layout DB), per DESIGN.md "Path B".
+    if (!xIdeskX.empty())
+        Set("X-Idesk-X", xIdeskX);
+    if (!xIdeskY.empty())
+        Set("X-Idesk-Y", xIdeskY);
 }
