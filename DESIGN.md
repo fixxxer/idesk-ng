@@ -423,3 +423,41 @@ untouched unless the user opts in.
   without changing anything in the code.
   Fixed by adding `spareRoot(NULL)` to the constructor's initializer
   list, same as every other pointer member already there.
+
+## Point 3, Path A: `--migrate-to-desktop` -- DONE
+
+`idesk-ng --migrate-to-desktop` (`Migrate.{h,cpp}`, wired into
+`App::processArguments()`) converts every `.lnk` in
+`~/.config/idesktop/` to a `.desktop` file in the same directory, per
+the field mapping already designed: `Caption`->`Name`,
+`ToolTip.Caption`->`Comment`, `Command` (or `Command[0]` if it's an
+action array)->`Exec`, `Icon`->`Icon`, `Width`/`Height`->
+`X-Idesk-Width`/`X-Idesk-Height`. `X`/`Y` are deliberately never
+written into the `.desktop` -- they go straight to the new layout DB
+instead (`IconLayout.{h,cpp}`: `~/.config/idesktop/layout.db`, same
+`Database`/`Table` grammar as everything else, one `table <absolute
+path> ... end` block per icon -- confirmed safe even for paths with
+spaces, since the parser reads a table's title with `getline()`, not a
+whitespace token). The original `.lnk` is renamed to `<name>.lnk.bak`
+rather than deleted. One-shot CLI command, runs and exits (0 on full
+success, 1 if any file had a real error) -- never run automatically.
+
+Safety behavior, all verified with a real two-`.lnk` fixture (one
+using the plain `Command` field, one using `ToolTip.Caption`; also
+deliberately included a decoy `CaptionTip` key in the other file to
+confirm the mapping doesn't false-match on a similarly-named field --
+it correctly produced no `Comment=` line for that one):
+- Re-running after a successful migration finds no `.lnk` files left
+  (already renamed to `.bak`) -- 0 migrated, 0 errors, idempotent.
+- If a same-named `.desktop` already exists, the `.lnk` is skipped
+  entirely (not touched, not renamed) rather than overwriting
+  something -- confirmed the pre-existing `.desktop` stays byte-for-
+  byte unchanged and the `.lnk` stays in place for the user to resolve
+  by hand.
+
+**Still open, deliberately not part of this piece:** `loadIcons()`
+doesn't read `layout.db` yet, so a migrated icon's seeded position
+isn't actually applied on a normal run -- it still lands wherever
+`arrangeIcons()` puts it, same as any fresh icon. Wiring that read
+(plus capturing `arrangeIcons()`-assigned positions back into the
+layout DB for icons that had none) is the next piece of Point 3.

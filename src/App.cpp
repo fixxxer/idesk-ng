@@ -23,6 +23,7 @@
  */
 
 #include "App.h"
+#include "Migrate.h"
 #include <signal.h>
 /*#include <sys/wait.h>*/
 
@@ -55,8 +56,18 @@ bool Application::processArguments()
                  << "Further documentation available at:"
                  << " http://idesk.sourceforge.net\n"
                  << "\nRemember to create your ~/.config/idesktop/ideskrc file,"
-                 << " and put .lnk icons in the ~/.config/idesktop\ndirectory.\n";
+                 << " and put .lnk icons in the ~/.config/idesktop\ndirectory.\n"
+                 << "\niDesk-NG: --migrate-to-desktop converts .lnk icons to"
+                 << " .desktop (see DESIGN.md).\n";
             returnBool = false;
+        }
+        else if (tmpStr == "--migrate-to-desktop")
+        {
+            // one-shot CLI utility, not a flag that changes the normal
+            // startup path: runs the migration and exits immediately,
+            // same as --help does, rather than falling through to
+            // startIdesk()
+            _exit(runMigration() ? 0 : 1);
         }
     }
     return returnBool;
