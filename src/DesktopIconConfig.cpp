@@ -24,10 +24,13 @@
  */
 
 #include "DesktopIconConfig.h"
+#include "IconLayout.h"
 
 DesktopIconConfig::DesktopIconConfig(const string & fName, Table &table, CommonOptions * parentData)
 {
     iconFilename = fName;
+    origin = ORIGIN_LNK; // safe default; scanIconDirectory() sets this
+                         // explicitly for every non-.lnk construction site
     
     common = new CommonOptions();
     
@@ -62,6 +65,16 @@ void DesktopIconConfig::saveIcon(int xCord, int yCord)
 {
     x = xCord;
     y = yCord;
+
+    if (origin == ORIGIN_LAYOUT_DB)
+    {
+        // A .desktop can be a copy/symlink of a real system launcher,
+        // and a plain file/folder has no file of its own to write
+        // into at all -- position lives in the layout DB instead, the
+        // .desktop/file itself is never touched. See IconLayout.h.
+        seedLayoutPosition(iconFilename, xCord, yCord);
+        return;
+    }
 
     Database db(iconFilename, false);
     Table & table = db.Query("Icon");

@@ -26,6 +26,8 @@
 #include "XIconWithShadow.h"
 #include "XImlib2Background.h"
 #include "Database.h"
+#include "DesktopIconConfig.h"
+#include "IconLayout.h"
 
 
 #include <X11/keysym.h>
@@ -287,6 +289,17 @@ void XDesktopContainer::arrangeIcons()
 
             iPtr->setX(finalX + ((maxW - iPtr->getWidth())/2));
             iPtr->setY(finalY);
+
+            // This icon had no saved position (that's what X==0 && Y==0
+            // means here) -- if it's a .desktop/plain-file icon (never
+            // a .lnk, which already owns its own position on disk),
+            // seed the layout DB with the slot arrangeIcons() just gave
+            // it, so the next run finds it here instead of re-arranging
+            // from scratch. See DesktopIconConfig::ORIGIN_LAYOUT_DB.
+            DesktopIconConfig * dIconConfig =
+                dynamic_cast<DesktopIconConfig *>(iPtr->getIconConfig());
+            if (dIconConfig && dIconConfig->getOrigin() == DesktopIconConfig::ORIGIN_LAYOUT_DB)
+                seedLayoutPosition(dIconConfig->getIconFilename(), iPtr->getX(), iPtr->getY());
 
             slot++;
         }

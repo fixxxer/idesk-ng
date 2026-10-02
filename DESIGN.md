@@ -461,3 +461,50 @@ isn't actually applied on a normal run -- it still lands wherever
 `arrangeIcons()` puts it, same as any fresh icon. Wiring that read
 (plus capturing `arrangeIcons()`-assigned positions back into the
 layout DB for icons that had none) is the next piece of Point 3.
+
+## Point 3, full read/write loop -- DONE
+
+Closes the loop the previous section left open:
+
+- **`DesktopIconConfig` now knows its own origin.** New
+  `IconOrigin` enum (`ORIGIN_LNK` / `ORIGIN_LAYOUT_DB`), defaults to
+  `ORIGIN_LNK`; `DesktopConfig::scanIconDirectory()` sets it explicitly
+  at all three construction sites (`.lnk`, `.desktop`, plain file).
+  `saveIcon()` branches on it: `ORIGIN_LNK` keeps the existing
+  behavior (rewrite the `.lnk` itself) untouched; `ORIGIN_LAYOUT_DB`
+  calls `seedLayoutPosition()` instead and never touches the
+  `.desktop`/file at all.
+- **Read side:** before constructing a `.desktop` or plain-file icon,
+  `scanIconDirectory()` now calls `getLayoutPosition(path, x, y)`; if
+  found, `X`/`Y` are injected into the icon's `Table` before
+  construction, so the icon comes up at its saved spot and
+  `arrangeIcons()` (which only acts on `X==0 && Y==0`) leaves it alone.
+- **Write-back side:** `XDesktopContainer::arrangeIcons()`, right
+  after assigning a fresh slot to an icon that had none, now checks
+  (via the new `XIcon::getIconConfig()` getter) whether that icon is
+  `ORIGIN_LAYOUT_DB`, and if so seeds the layout DB with the position
+  it was just given -- so the *next* run finds it there instead of
+  re-arranging from scratch. `.lnk` icons are untouched here, exactly
+  as before.
+- `layout.db` added to the same "don't even warn about this" exclusion
+  `ideskrc` already had in `scanIconDirectory()` -- it lives in the
+  same directory as the icons.
+
+Verified end-to-end with a real two-file fixture and a real previously
+-written `layout.db` (not mocked): a `.desktop` with a pre-seeded
+position loaded at exactly that position; a fresh `.desktop` with none
+loaded at (0,0) as expected (the in-X11 `arrangeIcons()` placement
+itself needs a real display, verify on real hardware); calling
+`saveIcon()` on an `ORIGIN_LAYOUT_DB` icon correctly wrote to
+`layout.db` and not the `.desktop` file; and, running the test a
+second time as a fully separate process, the icon written by the first
+run's `saveIcon()` call loaded back at that exact saved position --
+confirming the full round-trip survives a real process restart, not
+just in-memory state.
+
+**What's still open, by design, not a bug:** position only survives a
+file *rename* for `.lnk` (unaffected) -- a `.desktop` or plain file
+that gets renamed is a new path to the layout DB and starts fresh,
+same as DESIGN.md's "Legacy / standard icon support" section already
+called out as an accepted trade-off matching GNOME/KDE/XFCE's own
+behavior.

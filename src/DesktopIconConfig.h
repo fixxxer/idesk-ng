@@ -94,11 +94,24 @@ class CommonOptions
 
 class DesktopIconConfig : public AbstractIconConfig
 {
+    public:
+        // Where this icon's position should be persisted when dragged.
+        // ORIGIN_LNK: the .lnk file itself (existing behavior, safe --
+        // every real .lnk is an icon definition idesk-ng owns outright).
+        // ORIGIN_LAYOUT_DB: a .desktop (may be a copy/symlink of a real
+        // system launcher) or a plain file/folder with no file of its
+        // own to write into -- see IconLayout.h / DESIGN.md "Position
+        // handling". Defaults to ORIGIN_LNK; every non-.lnk construction
+        // site in DesktopConfig::scanIconDirectory() sets this
+        // explicitly, so the default only matters as a safe fallback.
+        enum IconOrigin { ORIGIN_LNK, ORIGIN_LAYOUT_DB };
+
     protected:
         CommonOptions * common;
 
         int x, y;
         int width, height;
+        IconOrigin origin;
 
     public:
 	DesktopIconConfig(const string & fName, Table &table, CommonOptions * parentData);
@@ -107,6 +120,9 @@ class DesktopIconConfig : public AbstractIconConfig
         virtual void setIconOptions(Table);
 
         virtual string getExtension(const string & file);
+
+        virtual void setOrigin(IconOrigin o) { origin = o; }
+        virtual IconOrigin getOrigin() { return origin; }
 
         virtual int getX() { return x; }
         virtual int getY() { return y; }

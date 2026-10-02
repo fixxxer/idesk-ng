@@ -88,3 +88,21 @@ void seedLayoutPosition(const string & path, int x, int y)
 
     db.Write(layoutDbPath);
 }
+
+bool getLayoutPosition(const string & path, int & outX, int & outY)
+{
+    string layoutDbPath = getLayoutDbPath();
+
+    struct stat st;
+    if (stat(layoutDbPath.c_str(), &st) != 0)
+        return false; // no layout DB yet -- nothing saved for anyone
+
+    Database db(layoutDbPath, false);
+    Table & table = db.Query(path);
+    if (!table.isValid())
+        return false;
+
+    outX = atoi(table.Query("X").c_str());
+    outY = atoi(table.Query("Y").c_str());
+    return true;
+}

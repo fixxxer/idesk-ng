@@ -52,4 +52,10 @@ string getLayoutDbPath();
 // duplicating.
 void seedLayoutPosition(const string & path, int x, int y);
 
+// Looks up a previously saved position for the icon at the given
+// absolute path. Returns false (outX/outY untouched) if the layout DB
+// doesn't exist yet or has no entry for this path -- both perfectly
+// normal, not errors.
+bool getLayoutPosition(const string & path, int & outX, int & outY);
+
 #endif
