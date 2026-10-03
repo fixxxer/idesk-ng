@@ -660,3 +660,34 @@ Not yet re-verified with a third valgrind pass (needs stopping
 idesk-ng with Ctrl+C specifically, not a plain `kill -9`, which still
 bypasses even this -- SIGKILL cannot be caught by any process) -- next
 thing to confirm on the VM.
+
+**Follow-up, confirmed with a temporary debug build on real hardware:**
+a plain (non-valgrind) run with debug prints at every link of the
+chain -- `signalhandler()`, `eventLoop()`'s `quitRequested` check,
+`Application::startIdesk()` past `run()`, and `~XIcon()` -- showed the
+entire graceful-shutdown mechanism working exactly as designed: all
+four checkpoints fired in order, `~XIcon()` ran once per icon with
+`captionOn=1` each time (so `delete caption` -> `~XImlib2Caption()`
+does run, including the font-close fix). The debug build was discarded
+afterward, not kept in history.
+
+This surfaced one more real, separate bug while tracing the chain:
+`XImlib2Image` holds a `tooltip` member (`XImlib2ToolTip *`, allocated
+with `new` in `createToolTip()`, called unconditionally from
+`XIcon::createIcon()` unless `createWindow()` fails first) that
+`~XImlib2Image()` never deleted -- same uninitialized-pointer-adjacent
+bug class as everything else in this section, just not caught in the
+first valgrind pass since it's a separate object graph branch from
+`rgb`/`alpha`/`image`/`vectorPixbuf`. This is exactly why the
+`XImlib2ToolTip::createFont()` leak specifically kept showing up
+unchanged across multiple valgrind runs even once the signal-handling
+fix was confirmed working end-to-end for everything else. Fixed:
+`tooltip` zero-initialized in the constructor and deleted (guarded) in
+the destructor, same pattern as every other member here.
+
+Not yet re-verified with valgrind -- next thing to confirm on the VM,
+this time stopped with Ctrl+C on the bare binary (not valgrind) first
+to keep variables isolated, since valgrind's own signal handling may
+behave differently around blocking/interruptible syscalls like
+`select()` -- worth a comparison if the counts still don't fully
+match expectations.

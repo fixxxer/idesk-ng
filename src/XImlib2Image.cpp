@@ -32,7 +32,8 @@ XImlib2Image::XImlib2Image(AbstractContainer * c, AbstractIcon * iParent,
                             : AbstractImage(c, iParent, con, iConfig),
                               hasAlpha(false), glowing(false),
                               rgb(NULL), alpha(NULL), alpha2(NULL),
-                              argbData(NULL), image(NULL), vectorPixbuf(NULL)
+                              argbData(NULL), image(NULL), vectorPixbuf(NULL),
+                              tooltip(NULL)
 {   
 }
 
@@ -83,6 +84,21 @@ XImlib2Image::~XImlib2Image()
     {
         g_object_unref(vectorPixbuf);
         vectorPixbuf = NULL;
+    }
+
+    // Found via a graceful-shutdown debug pass (confirmed every other
+    // destructor in the chain -- ~XIcon(), ~XImlib2Caption(), etc. --
+    // runs correctly after the signal-handling fix): createToolTip()
+    // (called unconditionally from XIcon::createIcon(), unless
+    // createWindow() fails first and returns early -- hence the
+    // NULL-initialized default and this guard) allocates this with
+    // `new` and nothing ever deleted it. This is exactly what was
+    // still showing up as a leak in XImlib2ToolTip::createFont() even
+    // after confirming the rest of the chain works.
+    if (tooltip)
+    {
+        delete tooltip;
+        tooltip = NULL;
     }
 }
 
