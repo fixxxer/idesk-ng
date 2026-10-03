@@ -411,7 +411,20 @@ void XDesktopContainer::eventLoop()
     }
     
 #ifdef HAVE_STARTUP_NOTIFICATION
-    sn_launcher_context_unref (sn_context);
+    // This whole cleanup block was dead code for the project's entire
+    // history until the graceful-shutdown fix a few commits back: the
+    // loop above used to be truly infinite, only ever broken out of via
+    // _exit() (which skips everything after it, this block included),
+    // so nothing had ever actually reached here before. First real
+    // execution immediately crashed: sn_context starts NULL (set at the
+    // top of this function) and only gets assigned when an app is
+    // actually launched via startup notification during the session --
+    // with none launched, sn_launcher_context_unref(NULL) segfaults.
+    // sn_display right below was already correctly guarded; sn_context
+    // was not -- classic copy-paste asymmetry between two adjacent,
+    // near-identical cleanup calls.
+    if (sn_context)
+        sn_launcher_context_unref (sn_context);
     if (sn_display)
     {
        sn_display_unref (sn_display);

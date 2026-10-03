@@ -33,7 +33,7 @@ XImlib2Image::XImlib2Image(AbstractContainer * c, AbstractIcon * iParent,
                               hasAlpha(false), glowing(false),
                               rgb(NULL), alpha(NULL), alpha2(NULL),
                               argbData(NULL), image(NULL), vectorPixbuf(NULL),
-                              tooltip(NULL)
+                              tooltip(NULL), colorMod(NULL)
 {   
 }
 
@@ -84,6 +84,16 @@ XImlib2Image::~XImlib2Image()
     {
         g_object_unref(vectorPixbuf);
         vectorPixbuf = NULL;
+    }
+
+    // Found once the process could complete a full clean shutdown for
+    // the first time (valgrind had never traced this far before --
+    // always crashed first): imlib_create_color_modifier() in
+    // configure() was never paired with imlib_free_color_modifier().
+    if (colorMod)
+    {
+        imlib_context_set_color_modifier(colorMod);
+        imlib_free_color_modifier();
     }
 
     // Found via a graceful-shutdown debug pass (confirmed every other

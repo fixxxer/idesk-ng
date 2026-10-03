@@ -691,3 +691,68 @@ to keep variables isolated, since valgrind's own signal handling may
 behave differently around blocking/interruptible syscalls like
 `select()` -- worth a comparison if the counts still don't fully
 match expectations.
+
+**Resolution, traced with temporary debug builds across several
+rounds on real hardware (all discarded, not kept in history):**
+stopping under valgrind with `kill -TERM` (instead of a terminal
+Ctrl+C, to rule out valgrind-specific SIGINT/TTY interaction)
+confirmed the signal → `quitRequested` → `eventLoop()` break chain all
+fires correctly -- but the process then segfaulted (SIGSEGV) partway
+through shutdown, before `valgrind`'s leak analysis could run on a
+fully torn-down heap.
+
+Root cause: `XDesktopContainer::eventLoop()`'s post-loop cleanup
+(`sn_launcher_context_unref(sn_context)` and a sibling
+`sn_display_unref` call) had been *completely dead code for the
+project's entire history* -- the loop used to be genuinely infinite,
+only ever broken via `_exit()`, which skips everything after it,
+cleanup block included. This is the first time in the project's
+history any code ever reached that point. `sn_context` starts `NULL`
+and is only assigned when an app is actually launched via startup
+notification during the session; with none launched, the first real
+execution immediately dereferenced `NULL`. The sibling `sn_display`
+line right below was already correctly guarded (`if (sn_display)`);
+`sn_context` was not -- classic asymmetry between two adjacent,
+near-identical cleanup calls. Fixed by adding the matching guard.
+
+With that crash gone, the process could finally complete a full clean
+shutdown for the first time ever -- which let valgrind trace much
+further than any previous run and surface several *more* real,
+previously-unreachable leaks in the process (the crash had always cut
+execution short before valgrind could even see this code):
+
+- `XImlib2ToolTip`: `fontDrawHandle` (`XftDrawCreate()` in
+  `createWindow()`) was missed by the earlier tooltip destructor fix --
+  same pattern, just a member not yet known about at the time. Also
+  zero-initialized `tooltip.window`/`gc`/`font` in the constructor
+  (previously only guarded in the destructor; these are actually
+  assigned later, by the owner's separate `createFont()`/`createWindow()`
+  calls -- see `XImlib2Image::createToolTip()` -- not by this
+  constructor itself).
+- `DesktopConfig::~DesktopConfig()` only ever freed `common` -- never
+  any of the `DesktopIconConfig` objects `loadIcons()`/
+  `scanIconDirectory()` built up in `iconConfigList` (inherited from
+  `AbstractConfig`). `XIcon` only *references* its config via a member
+  pointer, it doesn't own it; `DesktopConfig`, which actually created
+  each one with `new`, is the right owner to delete them -- same
+  pattern as `XDesktopContainer::destroy()`'s existing cleanup of its
+  own `iconList`.
+- `XImlib2Image::configure()`: `imlib_create_color_modifier()` was
+  never paired with `imlib_free_color_modifier()` (an Imlib2 context
+  call, like `imlib_free_image()` -- no argument, operates on whatever
+  was last passed to `imlib_context_set_color_modifier()`).
+
+Verified end to end on real hardware: `[1]+ Exit 1` / SIGSEGV in the
+job-control output is gone, replaced by a clean `[1]+ Done`. Both
+`XftFontOpen`/`createFont()` leaks that had persisted unchanged across
+every earlier valgrind run (the ones that motivated this entire
+investigation) are completely absent from the leak report now that the
+process can actually reach its own cleanup code. `still reachable`
+dropped from ~5.3MB to ~830KB in the same comparison, consistent with
+far more of the object graph actually tearing down correctly than ever
+before. The four fixes in this entry haven't had their own dedicated
+before/after valgrind comparison yet (found in the same pass that
+fixed the crash) -- worth one more run to confirm the `definitely
+lost` count drops further, but the headline problem (a crash that had
+silently made every destructor-based fix this session look
+ineffective to valgrind specifically) is resolved.

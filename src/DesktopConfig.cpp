@@ -53,6 +53,21 @@ DesktopConfig::DesktopConfig(Database db, string ideskrcFile) :
 
 DesktopConfig::~DesktopConfig()
 {
+    // Found once the graceful-shutdown fix let a full clean exit happen
+    // for the first time (valgrind had never been able to trace this
+    // far before -- the process always crashed first): this destructor
+    // only ever freed `common`, never any of the DesktopIconConfig
+    // objects loadIcons()/scanIconDirectory() built up in
+    // iconConfigList (inherited from AbstractConfig). XIcon doesn't own
+    // these -- it only references them via its iconConfig member -- so
+    // DesktopConfig, which actually created them with `new`, is the
+    // right place to delete them. Same pattern as
+    // XDesktopContainer::destroy()'s cleanup of its own iconList.
+    for (vector<AbstractIconConfig *>::iterator it = iconConfigList.begin();
+         it != iconConfigList.end(); ++it)
+        delete *it;
+    iconConfigList.clear();
+
     delete common;
 }
 

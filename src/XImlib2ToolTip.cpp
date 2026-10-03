@@ -26,8 +26,17 @@
 #include "Database.h"
 
 XImlib2ToolTip::XImlib2ToolTip(AbstractContainer * c, AbstractIcon * iPa, AbstractConfig * con, AbstractIconConfig * iCon): 
-  container(c), iParent(iPa), config(con), iConfig(iCon)
+  container(c), iParent(iPa), config(con), iConfig(iCon), fontDrawHandle(NULL)
 {
+   // tooltip.window/gc/font are only actually assigned later, by the
+   // owner's separate createFont()/createWindow() calls (see
+   // XImlib2Image::createToolTip()) -- zeroed here so the destructor's
+   // guards check real NULLs instead of uninitialized garbage in the
+   // (normally brief) window between construction and those calls.
+   tooltip.window = 0;
+   tooltip.gc = NULL;
+   tooltip.font = NULL;
+
 
    XDesktopContainer * xContainer =
                     dynamic_cast<XDesktopContainer *>(container);
@@ -65,6 +74,12 @@ XImlib2ToolTip::~XImlib2ToolTip()
         XftFontClose(display, tooltip.font);
     if (tooltip.gc)
         XFreeGC(display, tooltip.gc);
+    // Found in a later valgrind pass, once the process could complete a
+    // full clean shutdown for the first time: fontDrawHandle
+    // (XftDrawCreate() in createWindow()) was missed by the same earlier
+    // fix -- same pattern as the rest of this destructor.
+    if (fontDrawHandle)
+        XftDrawDestroy(fontDrawHandle);
     if (tooltip.window)
         XDestroyWindow(display, tooltip.window);
 }
