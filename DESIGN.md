@@ -568,3 +568,46 @@ logic was traced carefully against the exact allocation sites, but
 this one is worth confirming on the VM when there's a convenient
 moment (e.g. `valgrind --leak-check=full` or just watching RSS across
 a long run).
+
+## Three more real leaks, found by `valgrind --leak-check=full` on real hardware
+
+Running valgrind against a live idesk-ng session (editing an existing
+icon to add `X-Idesk-X`/`X-Idesk-Y`, confirming Path B, in the same
+pass) surfaced 7,904 bytes "definitely lost" in 20 blocks, on top of
+the `XImlib2Image` fix above. Most of the report (librsvg/pango/
+fontconfig frames shown as `???`, no symbols) is library-internal and
+out of scope -- but three stacks pointed straight into our own code:
+
+- **`DesktopConfig::scanIconDirectory()` leaked 2 `scandir()` entries
+  per directory scanned** (48 bytes x 2, twice -- once per
+  `scanIconDirectory()` call). `free(files[i])` sat *inside* the
+  `if (!backgroundFile(...))` block, so it only ran when an entry
+  wasn't skipped -- every skipped entry (`.`, `..`, dotfiles, `~`
+  backups) leaked its `scandir()` allocation. Fixed with an `else`
+  branch that frees it either way.
+- **`XImlib2Caption::renderFont2Imlib()` leaked a `GC` and a
+  `Pixmap`** (640 bytes for the GC alone) -- `tempGc`
+  (`XCreateGC(..., shapeMask, ...)`) and `shapeMask` itself
+  (`XCreatePixmap(...)`) are purely local/temporary, used only to
+  build the window's shape mask, but neither was ever freed. Added
+  `XFreeGC()`/`XFreePixmap()` right after their last use.
+- **`XftFontOpen()` without a matching `XftFontClose()`, in both
+  `XImlib2Caption` and `XImlib2ToolTip`** (2,725 bytes each,
+  confirming something already suspected earlier in this project but
+  never actually fixed). `XImlib2Caption`'s destructor already cleaned
+  up several things but not the font -- added one line. `XImlib2ToolTip`'s
+  destructor was completely empty: its `Tooltip` struct holds a
+  `window`, a `gc`, *and* a `font`, and none of the three were ever
+  released. Fixed all three there, not just the font valgrind happened
+  to flag.
+
+Verified: the `scanIconDirectory()` fix was re-run through the
+existing headless harness afterward -- same output as before, no
+crash, no double-free (each `scandir()` entry now goes through exactly
+one of three mutually exclusive `free()` sites: an early `continue`,
+the processed-icon path, or the new `else`). The two X11-specific
+fixes (`XFreeGC`/`XFreePixmap`/`XftFontClose`) can't be exercised
+without a real X session -- traced carefully against valgrind's exact
+allocation sites and written using the same deallocator idioms already
+used elsewhere in this codebase, but worth a second valgrind pass on
+the VM to confirm the "definitely lost" count actually drops.
