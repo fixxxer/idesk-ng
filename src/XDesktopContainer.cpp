@@ -29,6 +29,8 @@
 #include "DesktopIconConfig.h"
 #include "IconLayout.h"
 
+#include <csignal>
+#include <sys/select.h>
 
 #include <X11/keysym.h>
 #ifdef HAVE_STARTUP_NOTIFICATION
@@ -36,6 +38,12 @@
 #endif /* HAVE_STARTUP_NOTIFICATION  */
 
 XDesktopContainer *xcontainer;
+
+// Defined in App.cpp; set by signalhandler() on SIGTERM/SIGINT, read by
+// eventLoop() below -- see the comment next to its definition for why
+// this exists instead of calling _exit() straight from the signal
+// handler.
+extern volatile sig_atomic_t quitRequested;
 
 XDesktopContainer::XDesktopContainer(AbstractApp * a) : DesktopContainer(a)
 {
@@ -356,10 +364,38 @@ void XDesktopContainer::eventLoop()
     
     for(;;)
     {
+        if (quitRequested)
+            break;
+
         if( !XPending( display ) && timer){
 		if(!bg->IsOneShot()){
 			timer->Update();
 		}
+		// pre-existing tight loop when a background-rotation timer
+		// is active -- iterates fast enough that the quitRequested
+		// check above already catches a stop request essentially
+		// immediately, so no extra waiting needed here
+	}
+	else if (!XPending(display)) {
+		// No timer (the common case -- Background.Delay: 0 in every
+		// example config in this repo) and nothing pending: the old
+		// code called the blocking XNextEvent() directly here, which
+		// could wait forever with no X activity at all, meaning
+		// Ctrl+C/kill wouldn't be noticed until some event finally
+		// arrived. select() with a timeout on the X connection's own
+		// fd wakes the loop up periodically regardless, so
+		// quitRequested above is checked promptly either way.
+		int xfd = ConnectionNumber(display);
+		fd_set fds;
+		FD_ZERO(&fds);
+		FD_SET(xfd, &fds);
+		struct timeval tv;
+		tv.tv_sec = 1;
+		tv.tv_usec = 0;
+		select(xfd + 1, &fds, NULL, NULL, &tv);
+		// loop back around either way; if an event is now actually
+		// pending, the next iteration's XPending() check sends it to
+		// XNextEvent() below as normal
 	}
 	else {
 	 
