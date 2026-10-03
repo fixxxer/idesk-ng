@@ -338,6 +338,10 @@ void DesktopConfig::scanIconDirectory(const string & dir, bool warnOnUnrecognize
 
             free(files[i]);
         }
+        else
+            free(files[i]); // backgroundFile() said skip (".", "..", dotfiles,
+                             // ~-backups) -- still scandir's own allocation,
+                             // still ours to free either way
     }
     free(files);
 }

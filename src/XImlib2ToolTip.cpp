@@ -56,6 +56,17 @@ XImlib2ToolTip::XImlib2ToolTip(AbstractContainer * c, AbstractIcon * iPa, Abstra
 
 XImlib2ToolTip::~XImlib2ToolTip()
 {
+    // Found via valgrind --leak-check=full on real hardware: this
+    // destructor was completely empty, leaking all three X11/Xft
+    // resources createWindow() allocates (tooltip.font specifically
+    // showed up as "definitely lost", same XftFontOpen()-without-
+    // XftFontClose() pattern as XImlib2Caption).
+    if (tooltip.font)
+        XftFontClose(display, tooltip.font);
+    if (tooltip.gc)
+        XFreeGC(display, tooltip.gc);
+    if (tooltip.window)
+        XDestroyWindow(display, tooltip.window);
 }
 
 void XImlib2ToolTip::createWindow()

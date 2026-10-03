@@ -53,7 +53,14 @@ XImlib2Caption::~XImlib2Caption()
 
     if(gc)
 	XFreeGC(xContainer->getDisplay(), gc);
-    
+
+    // XftFontOpen() in createFont() (called from the constructor) was
+    // never paired with a close -- found leaking via valgrind
+    // --leak-check=full on real hardware (fontconfig/freetype buffers,
+    // ~2.7KB per icon caption).
+    if (font)
+        XftFontClose(xContainer->getDisplay(), font);
+
      XDestroyWindow(xContainer->getDisplay(), window);
      XftDrawDestroy(fontDrawHandle);
 }
@@ -205,6 +212,13 @@ void XImlib2Caption::renderFont2Imlib()
 #ifdef SHAPE					
     XShapeCombineMask(display, window, 0, 0, 0, shapeMask, ShapeUnion);
 #endif // SHAPE
+    // Both purely local/temporary -- unlike `pixmap`/`gc` (the class's
+    // own members, cleaned up elsewhere), nothing after this point needs
+    // tempGc or shapeMask again. Found leaking via valgrind
+    // --leak-check=full on real hardware: XCreateGC() was never paired
+    // with an XFreeGC(), same for this XCreatePixmap()/XFreePixmap().
+    XFreeGC(display, tempGc);
+    XFreePixmap(display, shapeMask);
     imlib_context_set_drawable(pixmap);
 }
 
