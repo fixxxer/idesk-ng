@@ -534,3 +534,37 @@ sight, and seeded the layout DB with it. Then, with the `.desktop`'s
 own `X-Idesk-X`/`Y` values changed to something else entirely, a second
 run still came back at the original 555,222 -- confirming the layout
 DB, once seeded, wins over the file every time afterward.
+
+## `XImlib2Image` memory leak -- fixed
+
+Every icon leaked its Imlib2/gdk-pixbuf resources: `~XImlib2Image()` was
+completely empty, and -- same bug class already fixed in
+`XImlib2Background::spareRoot` -- `rgb`/`alpha`/`alpha2`/`image`/
+`vectorPixbuf` were never initialized in the constructor either, so a
+naive "just add the frees" fix would have read garbage for the common
+case (a plain raster icon never touches `rgb`/`alpha`/`alpha2` at all)
+instead of correctly doing nothing.
+
+Fixed both at once: all five zero-initialized in the constructor, then
+freed correctly in the destructor, each with the right deallocator
+(`delete[]` for the `rgb`/`alpha`/`alpha2` arrays,
+`imlib_context_set_image()` + `imlib_free_image()` for `image` -- same
+idiom already used elsewhere in the codebase -- and `g_object_unref()`
+for `vectorPixbuf`, a GObject, not a raw pointer). `image = imlib_load_
+image(...)` turned out to be set on the *raster* path too (not just
+SVG), so this fix benefits every icon, not only SVG-sourced ones.
+
+`argbData` (the ARGB32 buffer built for the SVG alpha fix a few
+commits back) got promoted from a local variable to a real class
+member for this: `imlib_create_image_using_data()` does not copy or
+take ownership of the buffer it's given, so it has to outlive `image`
+and can only be freed *after* `imlib_free_image()` -- never before,
+and never automatically.
+
+Not verified on real hardware in this pass (needs an actual X11
+session with SVG and raster icons loaded, then idesk-ng exited
+cleanly, to check for leftover memory) -- compiles clean, and the
+logic was traced carefully against the exact allocation sites, but
+this one is worth confirming on the VM when there's a convenient
+moment (e.g. `valgrind --leak-check=full` or just watching RSS across
+a long run).

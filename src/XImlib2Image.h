@@ -57,6 +57,12 @@ class XImlib2Image : public AbstractImage
     
 	/* Test para SVG*/
     unsigned char *rgb, *alpha, *alpha2;
+    // Backing store for the Imlib2 image built in createPictureFromSvg().
+    // imlib_create_image_using_data() does not copy this buffer or take
+    // ownership of it -- Imlib2 keeps using it for as long as `image` is
+    // alive, and never frees it itself. Must outlive `image` and be
+    // freed only after imlib_free_image() in the destructor.
+    DATA32 * argbData;
 	
     bool glowing, glowChange;
 

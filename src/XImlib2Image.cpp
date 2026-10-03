@@ -30,12 +30,60 @@
 XImlib2Image::XImlib2Image(AbstractContainer * c, AbstractIcon * iParent,
                          AbstractConfig * con, AbstractIconConfig * iConfig)
                             : AbstractImage(c, iParent, con, iConfig),
-                              hasAlpha(false), glowing(false)
+                              hasAlpha(false), glowing(false),
+                              rgb(NULL), alpha(NULL), alpha2(NULL),
+                              argbData(NULL), image(NULL), vectorPixbuf(NULL)
 {   
 }
 
 XImlib2Image::~XImlib2Image()
-{   
+{
+    // Most icons (plain PNG/XPM, loaded by Imlib2's own native loader)
+    // never touch any of these -- they stay NULL and every delete/free
+    // below is a safe no-op. Only SVG-sourced icons
+    // (createPictureFromSvg()) actually allocate them. This mirrors the
+    // exact bug class already fixed in XImlib2Background::spareRoot:
+    // these members used to be left uninitialized, which would have
+    // made the frees below read garbage for the common (non-SVG) case
+    // instead of correctly doing nothing -- fixed by zero-initializing
+    // all of them in the constructor above.
+    if (image)
+    {
+        imlib_context_set_image(image);
+        imlib_free_image();
+        image = NULL;
+    }
+
+    // argbData must be freed after imlib_free_image(), never before --
+    // Imlib2 keeps using this buffer for as long as `image` is alive and
+    // never frees it itself (see the member's own comment in the header).
+    if (argbData)
+    {
+        delete[] argbData;
+        argbData = NULL;
+    }
+
+    if (rgb)
+    {
+        delete[] rgb;
+        rgb = NULL;
+    }
+    if (alpha)
+    {
+        delete[] alpha;
+        alpha = NULL;
+    }
+    if (alpha2)
+    {
+        delete[] alpha2;
+        alpha2 = NULL;
+    }
+
+    if (vectorPixbuf)
+    {
+        g_object_unref(vectorPixbuf);
+        vectorPixbuf = NULL;
+    }
 }
 
 void XImlib2Image::configure()
@@ -163,7 +211,7 @@ bool XImlib2Image::createPictureFromSvg()
     // PNG/XPM icons (loaded by Imlib2's own native loader, never touching
     // this function) looked correct. Build the real buffer from the
     // already-computed rgb[]/alpha[] arrays instead.
-    DATA32 * argbData = new DATA32[width * height];
+    argbData = new DATA32[width * height];
     for (int i = 0; i < width * height; i++)
         argbData[i] = ((DATA32)alpha[i] << 24) | ((DATA32)rgb[i*3] << 16) |
                       ((DATA32)rgb[i*3+1] << 8) | (DATA32)rgb[i*3+2];
