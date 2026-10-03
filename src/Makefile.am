@@ -43,6 +43,7 @@ idesk_SOURCES =  XDesktopContainer.h  XDesktopContainer.cpp \
 		 GenericFileIcon.h GenericFileIcon.cpp \
 		 IconLayout.h IconLayout.cpp \
 		 Migrate.h Migrate.cpp \
+		 Install.h Install.cpp \
 		 DesktopConfig.h DesktopConfig.cpp \
  		 DesktopIconConfig.h DesktopIconConfig.cpp \
 		 Misc.h Misc.cpp \

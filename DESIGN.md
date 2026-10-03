@@ -773,3 +773,93 @@ all librsvg/pango/fontconfig/libexpat internals with no symbols and no
 frame anywhere in this codebase's own stack -- out of scope, the
 accepted cost of the libraries themselves rather than anything
 idesk-ng can fix.
+
+## `--install-ideskrc` and `--install-trash-icon` -- DONE
+
+Two more one-shot setup commands, same family as
+`--migrate-to-desktop`: explicit, never run automatically, each skips
+(doesn't overwrite) when its target file already exists.
+
+**`--install-ideskrc`** writes `~/.config/idesktop/ideskrc` with
+idesk-ng's own factory defaults -- by reusing the exact same
+`Database(path, true)` mechanism normal startup already falls back to
+in memory when no `ideskrc` exists, then `Write()`-ing that to disk
+instead of only using it in-process. Zero duplicated content between
+the embedded defaults and this command.
+
+**`--install-trash-icon`** adds `trash.desktop`: `Icon=user-trash`
+(the standard freedesktop.org name, resolved the same dynamic
+theme-discovery way as every other icon), `Exec=xdg-open
+~/.local/share/Trash/files || zenity --error --text "..."` (xdg-open's
+own failure mode with no file manager registered is to silently do
+nothing -- the zenity fallback, confirmed to work since `Exec=` values
+run through a real `/bin/sh -c`, is the only thing that tells the
+person anything happened at all; the fallback message is always in
+English regardless of session language -- deliberately not localized,
+unlike the icon's own name, since translating a full sentence into
+~20 languages for a message almost nobody will ever see wasn't worth
+the scope), and `X-Idesk-Protected=true` (parsed by `FreeDesktopIcon`
+now; not yet enforced anywhere -- the future Delete context-menu
+action is expected to check it and refuse).
+
+The icon's `Name` is localized via a bounded table (~20 common desktop
+languages -- es, de, fr, it, pt, ru, ja, zh including a separate
+Traditional-Chinese case for zh_TW/zh_HK, ko, nl, pl, tr, ar, sv, cs,
+el, he, hu, fi, da, no/nb, uk, ro) keyed by the 2-letter code from
+`LC_ALL`, falling back to `LANG`, falling back to English for any
+language not in the table or with no locale set at all. Deliberately
+not a claim to cover every language that exists -- a full, generic
+translation would need pulling in GNOME/KDE's own translation
+catalogs, exactly the kind of dependency this project tests against
+*not* having (this whole feature was motivated by testing on a Debian
++ Fluxbox box with none of that installed).
+
+**Made the one-shot flags properly composable in the same pass.**
+`--migrate-to-desktop` previously called `_exit()` the instant it was
+matched in `processArguments()`'s argv loop, meaning only the first
+recognized one-shot flag in a given invocation would ever actually
+run. Restructured so each one-shot action (now three) runs in argv
+order within the loop, and only once the whole loop has finished does
+the process decide its exit code -- 0 if everything that ran
+succeeded, 1 if any of them failed. This is what lets
+`--install-ideskrc --install-trash-icon --migrate-to-desktop` (or any
+subset, any order) all run together in one invocation, rather than
+needing one run per flag. Considered adding a single `--install-all`
+convenience flag on top of this instead/as well; decided against it --
+once the flags compose freely, it would be pure sugar for "pass the
+other three", adding a flag whose only job is staying in sync with
+whatever one-shot commands exist later.
+
+`--help` stays exclusive: checked in its own pass before the one-shot
+actions' loop even runs, so combining it with any action flag shows
+the help text and does nothing else, rather than ambiguously also
+running whatever else was on the command line.
+
+Verified end-to-end, all headless (pure filesystem + env var logic,
+no X11 needed):
+- `--install-ideskrc` on a genuinely fresh `$HOME` (neither
+  `~/.config/idesktop/` nor the legacy `~/.idesktop/` existing yet)
+  correctly created `~/.config/idesktop/` and wrote real, valid
+  `Config`/`Actions` content -- this caught a real bug first: the
+  directory-resolution helper copied from `Migrate.cpp` is written for
+  the opposite case (a directory that already has files in it), so on
+  a truly fresh system it silently preferred the legacy path *and*
+  never created it, failing outright. Fixed with a dedicated resolver
+  for the install commands specifically
+  (`resolveOrCreateIdesktopDir()`) that still respects an existing
+  legacy setup if that's what's there, but creates the modern,
+  XDG-preferred path (including `~/.config` itself if missing) on a
+  genuinely fresh system instead of falling back to the deprecated one.
+- Re-running `--install-ideskrc` against the file it just created
+  correctly skipped rather than overwriting.
+- `--install-trash-icon` tested across `es_MX`, `de_DE`, `zh_TW`
+  (confirmed the separate Traditional-Chinese branch fires, not the
+  generic `zh` entry), `ja_JP`, an unrecognized language code, and no
+  `LANG` set at all -- each produced the exact right `Name=`, with the
+  last two both correctly falling back to `Trash`.
+- All three flags combined in one invocation, in both orders, each
+  produced the same three files either way (`ideskrc`, `trash.desktop`,
+  the migrated `.desktop` + seeded `layout.db`), single `exit 0`.
+- `--help` combined with `--install-ideskrc` showed only the help text
+  and left `$HOME` completely untouched -- confirmed the directory was
+  never even created, not just that the file wasn't written.

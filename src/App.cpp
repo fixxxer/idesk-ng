@@ -24,6 +24,7 @@
 
 #include "App.h"
 #include "Migrate.h"
+#include "Install.h"
 #include <signal.h>
 /*#include <sys/wait.h>*/
 
@@ -45,7 +46,10 @@ bool Application::processArguments()
 {
     bool returnBool = true;
     string tmpStr;
-    
+
+    // --help is exclusive: show it and stop, ignoring every other flag,
+    // rather than also running whatever one-shot actions happen to be
+    // in the same argv (ambiguous, and nobody actually wants that).
     for (int i = 0; i < argc; i++)
     {
         tmpStr = argv[i];
@@ -57,19 +61,53 @@ bool Application::processArguments()
                  << " http://idesk.sourceforge.net\n"
                  << "\nRemember to create your ~/.config/idesktop/ideskrc file,"
                  << " and put .lnk icons in the ~/.config/idesktop\ndirectory.\n"
-                 << "\niDesk-NG: --migrate-to-desktop converts .lnk icons to"
-                 << " .desktop (see DESIGN.md).\n";
-            returnBool = false;
-        }
-        else if (tmpStr == "--migrate-to-desktop")
-        {
-            // one-shot CLI utility, not a flag that changes the normal
-            // startup path: runs the migration and exits immediately,
-            // same as --help does, rather than falling through to
-            // startIdesk()
-            _exit(runMigration() ? 0 : 1);
+                 << "\niDesk-NG one-shot setup commands (combine freely, each"
+                 << " runs and prints its own result, see DESIGN.md):\n"
+                 << "  --install-ideskrc     write ~/.config/idesktop/ideskrc"
+                 << " with factory defaults (skipped if one exists)\n"
+                 << "  --install-trash-icon  add a Trash icon (skipped if"
+                 << " one exists)\n"
+                 << "  --migrate-to-desktop  convert .lnk icons to .desktop\n";
+            return false;
         }
     }
+
+    // One-shot CLI utilities: not flags that change the normal startup
+    // path. Each runs in argv order and prints its own summary; only
+    // once every matching flag has run do we decide the process's exit
+    // code, combining all of their results, rather than exiting the
+    // instant the first one is seen -- this is what lets them be freely
+    // combined in a single invocation instead of needing one run per
+    // flag.
+    bool ranOneShotAction = false;
+    bool oneShotFailed = false;
+
+    for (int i = 0; i < argc; i++)
+    {
+        tmpStr = argv[i];
+        if (tmpStr == "--migrate-to-desktop")
+        {
+            ranOneShotAction = true;
+            if (!runMigration())
+                oneShotFailed = true;
+        }
+        else if (tmpStr == "--install-ideskrc")
+        {
+            ranOneShotAction = true;
+            if (!installIdeskrc())
+                oneShotFailed = true;
+        }
+        else if (tmpStr == "--install-trash-icon")
+        {
+            ranOneShotAction = true;
+            if (!installTrashIcon())
+                oneShotFailed = true;
+        }
+    }
+
+    if (ranOneShotAction)
+        _exit(oneShotFailed ? 1 : 0);
+
     return returnBool;
 }
 

@@ -109,7 +109,7 @@ FreeDesktopIcon::FreeDesktopIcon(const string & filename) : Table()
     bool sawDesktopEntryGroup = false;
 
     string type, name, comment, exec, tryExec, url, icon;
-    string hidden, noDisplay, xIdeskWidth, xIdeskHeight, xIdeskX, xIdeskY;
+    string hidden, noDisplay, xIdeskWidth, xIdeskHeight, xIdeskX, xIdeskY, xIdeskProtected;
 
     string line;
     while (getline(file, line))
@@ -164,6 +164,8 @@ FreeDesktopIcon::FreeDesktopIcon(const string & filename) : Table()
             xIdeskX = value;
         else if (key == "X-Idesk-Y")
             xIdeskY = value;
+        else if (key == "X-Idesk-Protected")
+            xIdeskProtected = value;
         else if (key == "X-Idesk-Width")
             xIdeskWidth = value;
         else if (key == "X-Idesk-Height")
@@ -243,4 +245,10 @@ FreeDesktopIcon::FreeDesktopIcon(const string & filename) : Table()
         Set("X-Idesk-X", xIdeskX);
     if (!xIdeskY.empty())
         Set("X-Idesk-Y", xIdeskY);
+    // Not yet enforced anywhere -- the future Delete context-menu
+    // action is expected to check this (Query("X-Idesk-Protected") ==
+    // "true") and refuse. See --install-trash-icon in Install.cpp,
+    // the first icon to set this.
+    if (!xIdeskProtected.empty())
+        Set("X-Idesk-Protected", xIdeskProtected);
 }
