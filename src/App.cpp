@@ -73,11 +73,27 @@ bool Application::processArguments()
     return returnBool;
 }
 
+// Set from signalhandler() (async-signal-safe: a plain flag write, no
+// malloc/X11/anything else unsafe to call from a signal handler) and
+// read from XDesktopContainer::eventLoop()'s main loop, which breaks
+// out and lets normal C++ destructors run when it sees this set --
+// instead of signalhandler() calling _exit() directly, which skips
+// every destructor in the program (found via valgrind: this is why
+// several leak fixes elsewhere showed no improvement when stopped with
+// Ctrl+C/kill, the normal way this program has always been stopped).
+volatile sig_atomic_t quitRequested = 0;
+
 void signalhandler(int sig){
 	if(sig == SIGCHLD){
 	  int status;
 	  waitpid(-1, &status, WNOHANG|WUNTRACED);
+	}else if(sig == SIGTERM || sig == SIGINT){
+	  quitRequested = 1;
 	}else{
+	  // SIGSEGV/SIGFPE/etc -- a genuine crash, not a deliberate stop
+	  // request. Process state may already be corrupted; bail out
+	  // immediately rather than risk running more code (including
+	  // destructors) against it.
 	  _exit(1); 	
 	}
 }
@@ -98,6 +114,16 @@ void Application::startIdesk()
     if (!container)
                 cerr << "container is NULL\n";
     container->run();
+
+    // run() only returns once eventLoop() has seen quitRequested and
+    // broken out gracefully (a crash still goes straight through
+    // signalhandler()'s _exit(1) and never reaches here). Explicitly
+    // deleting -- same pattern restartIdesk() already uses below --
+    // is what actually runs every destructor in the icon/container
+    // object graph; exit(0) (not _exit()) also runs any remaining
+    // static/global destructors and atexit() handlers.
+    delete container;
+    exit(0);
 }
 
 void Application::restartIdesk()

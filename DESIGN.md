@@ -611,3 +611,52 @@ without a real X session -- traced carefully against valgrind's exact
 allocation sites and written using the same deallocator idioms already
 used elsewhere in this codebase, but worth a second valgrind pass on
 the VM to confirm the "definitely lost" count actually drops.
+
+## Signal handling -- destructors never ran on Ctrl+C/kill (found by a second valgrind pass)
+
+A second valgrind run confirmed the `scanIconDirectory()` and `GC`/
+`Pixmap` fixes above (definitely-lost total dropped by exactly 736
+bytes / 8 blocks, matching their sizes) -- but the `XftFontOpen`/
+`XftFontClose` fix showed *zero* improvement, identical 2,725 bytes in
+both `XImlib2Caption` and `XImlib2ToolTip`, as if it had never been
+applied.
+
+Root cause: `signalhandler()` (`App.cpp`) called `_exit(1)` directly
+for SIGINT and SIGTERM -- the exact signals Ctrl+C and `kill`/`pkill`
+send, i.e. literally how idesk-ng has been stopped this entire testing
+session. `_exit()` skips every C++ destructor in the process. The font
+fix was correct; it just never got the chance to run, and neither does
+*any* destructor-based cleanup in this codebase when stopped the
+normal way -- including the `XImlib2Image` and `XImlib2Background::
+spareRoot` fixes from earlier in this file.
+
+Fixed properly rather than patched around:
+- `signalhandler()` now only sets `volatile sig_atomic_t
+  quitRequested` for SIGINT/SIGTERM (a plain flag write is
+  async-signal-safe; calling complex cleanup -- malloc/free, X11 calls
+  -- directly from a signal handler is not, and risks deadlock or
+  corruption). SIGSEGV/SIGFPE and other signals still `_exit(1)`
+  immediately -- those represent an actual crash, where process state
+  may already be corrupted and attempting more code (destructors
+  included) is itself risky.
+- `XDesktopContainer::eventLoop()`'s main loop now checks
+  `quitRequested` at the top of every iteration and breaks out
+  cleanly. The tight-loop case (a background-rotation timer active)
+  already iterates fast enough that this is essentially immediate. The
+  common case -- no timer (`Background.Delay: 0` in every example
+  config in this repo) and nothing pending -- used to call the
+  blocking `XNextEvent()` directly, which could wait indefinitely with
+  no X activity at all; replaced with `select()` on the X connection's
+  own fd with a 1-second timeout, so the loop wakes up and checks
+  `quitRequested` regularly regardless of whether anything is actually
+  happening on screen.
+- `Application::startIdesk()` now explicitly `delete container;` and
+  `exit(0)` once `run()` returns (which only happens after `eventLoop()`
+  breaks out gracefully) -- the same explicit-delete pattern
+  `restartIdesk()` already used. This is what actually runs every
+  destructor in the icon/container object graph.
+
+Not yet re-verified with a third valgrind pass (needs stopping
+idesk-ng with Ctrl+C specifically, not a plain `kill -9`, which still
+bypasses even this -- SIGKILL cannot be caught by any process) -- next
+thing to confirm on the VM.
