@@ -42,6 +42,16 @@ DesktopIconConfig::DesktopIconConfig(const string & fName, Table &table, CommonO
 
 DesktopIconConfig::~DesktopIconConfig()
 {
+    // Found in the same valgrind pass that caught DesktopConfig never
+    // deleting its own DesktopIconConfig objects (now fixed) -- one
+    // level deeper: this destructor was itself completely empty, so
+    // fixing the outer leak just meant ~DesktopIconConfig() started
+    // actually running without ever freeing what it owns. `common`
+    // (CommonOptions, allocated with `new` in the constructor above)
+    // is exclusively owned by this object -- nothing else references
+    // or frees it.
+    if (common)
+        delete common;
 }
 
 void DesktopIconConfig::setIconOptions(Table table)

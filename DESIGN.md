@@ -756,3 +756,20 @@ fixed the crash) -- worth one more run to confirm the `definitely
 lost` count drops further, but the headline problem (a crash that had
 silently made every destructor-based fix this session look
 ineffective to valgrind specifically) is resolved.
+
+**Confirmed with a clean before/after comparison on real hardware:**
+same `kill -TERM` method, same clean `Done` (no crash). `definitely
+lost` dropped from 10,040 to 7,008 bytes (21 to 14 blocks),
+`indirectly lost` from 43,919 to 41,936. One more real leak turned up
+in the detailed trace, one level deeper than the `DesktopConfig` fix
+above: `DesktopIconConfig::~DesktopIconConfig()` was itself completely
+empty, so fixing `DesktopConfig` to actually delete each
+`DesktopIconConfig` just meant this destructor started running without
+ever freeing what it owns -- `common` (a `CommonOptions*`, allocated
+with `new` in the constructor, exclusively owned by this object).
+Fixed the same way as everything else in this investigation. At this
+point the remaining `definitely lost`/`indirectly lost` entries are
+all librsvg/pango/fontconfig/libexpat internals with no symbols and no
+frame anywhere in this codebase's own stack -- out of scope, the
+accepted cost of the libraries themselves rather than anything
+idesk-ng can fix.
