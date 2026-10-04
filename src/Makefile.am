@@ -46,6 +46,8 @@ idesk_SOURCES =  XDesktopContainer.h  XDesktopContainer.cpp \
 		 Install.h Install.cpp \
 		 MessageBox.h MessageBox.cpp \
 		 ContextMenu.h ContextMenu.cpp \
+		 TextInput.h TextInput.cpp \
+		 IconEdit.h IconEdit.cpp \
 		 DesktopConfig.h DesktopConfig.cpp \
  		 DesktopIconConfig.h DesktopIconConfig.cpp \
 		 Misc.h Misc.cpp \

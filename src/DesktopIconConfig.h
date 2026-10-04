@@ -130,6 +130,11 @@ class DesktopIconConfig : public AbstractIconConfig
         // context menu's Delete action checks this and refuses.
         virtual bool isProtected() { return protectedFromDelete; }
 
+        // Used after a plain file is renamed from the context menu, so
+        // the restart's saveState() records its position under the new
+        // path instead of resurrecting a layout entry for the old one.
+        virtual void setIconFilename(const string & f) { iconFilename = f; }
+
         virtual int getX() { return x; }
         virtual int getY() { return y; }
         virtual int getWidth() { return width; }

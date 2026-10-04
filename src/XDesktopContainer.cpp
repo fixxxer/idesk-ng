@@ -29,6 +29,8 @@
 #include "DesktopIconConfig.h"
 #include "IconLayout.h"
 #include "ContextMenu.h"
+#include "TextInput.h"
+#include "IconEdit.h"
 #include "XImlib2Image.h"
 #include "XImlib2Caption.h"
 
@@ -634,9 +636,7 @@ void XDesktopContainer::deleteIcon(XIcon * icon)
 
 	if (dIconConfig->isProtected())
 	{
-		string cmd = resolveSelfPathForMessage() +
-		    " --show-message \"This icon is protected and can't be deleted.\"";
-		runCommand(cmd);
+		notify("This icon is protected and can't be deleted.");
 		return;
 	}
 
@@ -681,6 +681,120 @@ void XDesktopContainer::deleteIcon(XIcon * icon)
 	XFlush(display);
 }
 
+// Single-quotes a string for /bin/sh (every Exec-style command in this
+// project runs through "sh -c"), so text that contains quotes, spaces or
+// shell metacharacters -- a file name in an error message, say -- can
+// never be interpreted as part of the command.
+static string shellQuote(const string & s)
+{
+	string out = "'";
+	for (size_t i = 0; i < s.size(); i++)
+	{
+		if (s[i] == '\'')
+			out += "'\\''";
+		else
+			out += s[i];
+	}
+	out += "'";
+	return out;
+}
+
+static bool endsWith(const string & s, const string & suffix)
+{
+	return s.size() >= suffix.size() &&
+	       s.compare(s.size() - suffix.size(), suffix.size(), suffix) == 0;
+}
+
+static string baseNameOf(const string & path)
+{
+	size_t p = path.find_last_of('/');
+	return p == string::npos ? path : path.substr(p + 1);
+}
+
+// Trim, and turn any newline into a space (a .lnk/.desktop value is one line).
+static string cleanName(const string & in)
+{
+	string s = in;
+	for (size_t i = 0; i < s.size(); i++)
+		if (s[i] == '\n' || s[i] == '\r' || s[i] == '\t')
+			s[i] = ' ';
+	size_t a = s.find_first_not_of(' ');
+	if (a == string::npos)
+		return "";
+	size_t b = s.find_last_not_of(' ');
+	return s.substr(a, b - a + 1);
+}
+
+// Tell the person something, via the same --show-message popup the Trash
+// icon uses, launched through the existing runCommand() fork+exec helper
+// so the main loop isn't blocked on it.
+void XDesktopContainer::notify(const string & text)
+{
+	runCommand(shellQuote(resolveSelfPathForMessage()) +
+	           " --show-message " + shellQuote(text));
+}
+
+// Rename, per the agreed rule: for a .lnk or a .desktop it changes the
+// *shown* name (Caption: / Name=) and never the file; for a plain
+// file/folder in ~/Desktop -- which has no name other than its file name
+// -- it renames the file itself. Refreshes by restarting idesk-ng, the
+// same full Reload that already exists (see the TODO in restartIdesk's
+// neighborhood: an in-place caption refresh would be nicer, but needs
+// the icon's config re-parsed and its caption window re-measured and
+// re-centered; a restart is simple and reliable).
+void XDesktopContainer::renameIcon(XIcon * icon)
+{
+	DesktopIconConfig * dIconConfig =
+	    dynamic_cast<DesktopIconConfig *>(icon->getIconConfig());
+	if (!dIconConfig)
+		return;
+
+	string path = dIconConfig->getIconFilename();
+	bool isLnk = endsWith(path, ".lnk");
+	bool isDesktop = endsWith(path, ".desktop");
+
+	string initial = (isLnk || isDesktop) ? dIconConfig->getCaption()
+	                                      : baseNameOf(path);
+
+	string typed;
+	if (!showTextInput(display, DefaultScreen(display), rootWindow,
+	                   imlib_context_get_visual(), imlib_context_get_colormap(),
+	                   "Rename", initial, typed))
+		return;
+
+	string newName = cleanName(typed);
+	if (newName.empty() || newName == initial)
+		return;
+
+	string error;
+	bool ok;
+	if (isLnk)
+		ok = setLnkCaption(path, newName, error);
+	else if (isDesktop)
+		ok = setDesktopName(path, newName, error);
+	else
+	{
+		string newPath;
+		ok = renamePlainFile(path, newName, newPath, error);
+		if (ok)
+		{
+			// saveState() runs as part of the restart below and records
+			// every icon's position under its in-memory path -- point it
+			// at the new path, and drop the entry for the old one.
+			removeLayoutPosition(path);
+			dIconConfig->setIconFilename(newPath);
+		}
+	}
+
+	if (!ok)
+	{
+		notify(error);
+		return;
+	}
+
+	app->restartIdesk();
+}
+
 void XDesktopContainer::exeCurrentAction(XIcon * icon)
 {
 	// Right-click context menu: a plain single right-click has no
@@ -705,6 +819,8 @@ void XDesktopContainer::exeCurrentAction(XIcon * icon)
 
 		if (chosen >= 0 && items[chosen] == "Delete")
 			deleteIcon(icon); // may free `icon` -- nothing below may touch it
+		else if (chosen >= 0 && items[chosen] == "Rename")
+			renameIcon(icon); // may restart idesk-ng and never return
 		else if (chosen >= 0)
 			cerr << "Context menu: \"" << items[chosen] << "\" chosen for \""
 			     << icon->getIconConfig()->getCaption() << "\"\n";

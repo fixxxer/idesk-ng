@@ -118,7 +118,11 @@ int showContextMenu(Display * display, int screen, Window root,
     // work for "clicked outside -> cancel" without any coordinate
     // translation) rather than going to whatever's actually under the
     // cursor, same as any other popup menu.
-    XGrabPointer(display, win, True,
+    // owner_events=False so a click on another of this process's windows
+    // (another icon) is reported in the menu's coordinate space and counts
+    // as outside, instead of being delivered to that icon's window with
+    // coordinates that could land inside the menu's bounds by accident.
+    XGrabPointer(display, win, False,
                  ButtonPressMask | ButtonReleaseMask | PointerMotionMask,
                  GrabModeAsync, GrabModeAsync, None, None, CurrentTime);
     XGrabKeyboard(display, win, True, GrabModeAsync, GrabModeAsync,

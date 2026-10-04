@@ -1124,3 +1124,75 @@ real entry for a `.desktop` icon's path, confirmed the icon loaded at
 exactly that seeded position (300,200 in the test), deleted it through
 the context menu, and confirmed `layout.db` came back completely empty
 afterward.
+
+## Context menu: Rename -- DONE
+
+**What "Rename" changes** (agreed rule): for a `.lnk` or a `.desktop` it
+changes the *shown* name -- `Caption:` / `Name=` -- and never the file; for a
+plain file or folder in `~/Desktop`, which has no name other than its file
+name, it renames the file itself. A `.desktop` is edited in place (`Name=`
+inside `[Desktop Entry]` only), so `Name[es]=` keys, comments, other groups'
+`Name=` lines, and the file's mode all survive. A symbolic link is refused for
+both `.lnk` and `.desktop`: a launcher can be a link to a real system file, and
+writing through it would modify that.
+
+**Pieces.** `IconEdit.{h,cpp}`: the three on-disk edits, no X11, covered by
+`tests/IconEditTest.cpp` (25 checks, including the traps above, symlinks,
+collisions, invalid names, folders and UTF-8). `TextInput.{h,cpp}`: a modal
+single-line field built on the same Xlib/Xft pattern as `ContextMenu`.
+`XDesktopContainer::renameIcon()` and `notify()` tie them to the menu.
+
+**`TextInput`.** The initial text starts fully selected, so typing replaces
+it. Editing: typing, Backspace, Delete, Left/Right/Home/End, Ctrl+A. Enter
+accepts; Escape or a click outside cancels. Text is UTF-8 and the cursor and
+deletion step over whole characters (Backspace after `n`-tilde removes the
+character, not one byte of it). Dead keys -- acute, grave, circumflex, tilde,
+diaeresis, cedilla -- are composed with the next letter from a small built-in
+table covering the Latin-1 vowels, `n`, `y` and `c`; a dead key followed by
+space, or by a letter it can't combine with, yields the plain diacritic. This
+deliberately avoids XIM: `XLookupString()` alone does not compose dead keys,
+and XIM would tie the dialog to the session having a UTF-8 locale configured,
+which a minimal system often does not. Not supported: placing the cursor with
+the mouse and clipboard paste. While waiting for events it wakes once a second
+to honour `quitRequested`, so an open dialog cannot block a shutdown
+(`ContextMenu`'s own modal loop still lacks this).
+
+**Refresh is a full restart.** After the edit, `Application::restartIdesk()`
+-- the existing Reload -- rebuilds the desktop. Simple and reliable, at the
+cost of the whole desktop re-creating (a visible blink); a live update would
+need the icon's config re-parsed and its caption window re-measured and
+re-centered. Because `saveState()` runs first and records *every* icon's
+position under its in-memory path, a renamed plain file has its
+`DesktopIconConfig` path updated (new `setIconFilename()`) and its old
+`layout.db` entry removed beforehand -- otherwise the restart would resurrect
+an entry for the old name. Failures (name already exists, invalid name,
+symlink) are reported through the same `--show-message` popup; messages go
+through a `shellQuote()` so text containing quotes or shell metacharacters
+(a file name) cannot become part of the command.
+
+**Bug found while writing it, in `ContextMenu`:** it grabbed the pointer with
+`owner_events=True` while its own comment documented `False`. With `True`, a
+click on *another* icon while the menu is open is delivered to that icon's
+window with coordinates relative to it, which can land inside the menu's
+bounds by accident and be read as choosing an option. Now `False`, as
+documented (`TextInput` uses `False` too).
+
+Verified on a virtual X server (`Xvfb`, `xdotool`, `latam` keymap, and
+`xwininfo`/screenshots for window state and appearance): Escape and
+click-outside cancel with no restart and the file unchanged; typing
+`M`, dead acute, `u`, `s`, `i`, `c`, `a` stores `M` + `0xC3 0xBA` + `sica`;
+`N`, `i`, n-tilde, `o`, Left, Backspace leaves exactly `Nio` with no stray
+bytes; a `.desktop` renamed to a name with n-tilde keeps `Name[es]=` and its
+`X-Idesk-X/Y`; a plain file renamed `notas.txt` -> `ideas.txt` ends with the
+file renamed and `layout.db` holding the new path at the same position and no
+entry for the old; renaming onto an existing name pops the error message and
+neither restarts nor touches either file; Escape closes the context menu; and
+a click on a different icon with the menu open closes it without opening the
+dialog (checked after the fix; not run against the old code, so this shows it
+passes, not that it would have caught the bug). A screenshot confirmed the
+dialog's layout: title, framed field, selection highlight, caret, hint line.
+
+Not verified: any of this on a real keyboard and session (dead-key behavior in
+particular depends on the person's real layout), Rename of a `.desktop` that
+is a symlink in the live UI (refused in the unit tests only), and Rename with
+`SnapShadow` enabled.
