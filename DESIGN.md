@@ -1094,8 +1094,9 @@ process alive; both files in the Trash (before the fix a single delete left
 shadows on, including `SnapShadow`'s extra windows (8 windows for 2 icons
 instead of 6): exit code 0 both times. Not verified: Delete itself with
 `SnapShadow` enabled (only shutdown was tested there, through the same
-destructor chain), and -- most importantly -- that the ghost is visually
-gone on a real Fluxbox session, which is the user's to confirm.
+destructor chain), and, most importantly, that the ghost is visually
+gone on a real Fluxbox session -- since confirmed: two icons deleted on
+real hardware, nothing left on screen, both files in the Trash.
 
 **Follow-up: Delete also removes the icon's entry from the layout
 DB.** Not just tidiness -- a real (if narrow) correctness gap:
