@@ -28,6 +28,8 @@
 #include <fstream>
 #include <iostream>
 #include <cstdlib>
+#include <unistd.h>
+#include <climits>
 
 using namespace std;
 
@@ -166,6 +168,26 @@ static string detectSessionLanguage()
     return "en"; // no locale set at all -- English either way
 }
 
+// The Trash icon's Exec= line needs to call back into idesk-ng itself
+// (--show-message). A bare "idesk" only works if the binary happens to
+// be on $PATH -- true after a real `make install`, but not when
+// running straight from the build directory (./src/idesk), exactly
+// how this project gets tested throughout its own DESIGN.md. Resolving
+// /proc/self/exe instead embeds whatever path is actually running
+// right now, Linux-specific but this project already depends on X11/
+// Xlib/Imlib2 and isn't targeting anything else. Falls back to the
+// bare "idesk" (PATH-dependent, the previous behavior) only if that
+// somehow can't be read.
+static string resolveSelfPath()
+{
+    char buf[PATH_MAX];
+    ssize_t len = readlink("/proc/self/exe", buf, sizeof(buf) - 1);
+    if (len <= 0)
+        return "idesk";
+    buf[len] = '\0';
+    return string(buf);
+}
+
 bool installTrashIcon()
 {
     string idesktopDir = resolveOrCreateIdesktopDir();
@@ -201,9 +223,10 @@ bool installTrashIcon()
     // itself, consistent with testing this project on minimal systems
     // with nothing GNOME/KDE-adjacent installed (see DESIGN.md). Always
     // in English regardless of session language -- see DESIGN.md.
-    out << "Exec=xdg-open ~/.local/share/Trash/files || idesk "
-           "--show-message \"No file manager found to open the Trash "
-           "folder. Install one such as Nautilus, Dolphin, or PCManFM.\"\n";
+    out << "Exec=xdg-open ~/.local/share/Trash/files || "
+           << resolveSelfPath() << " --show-message \"No file manager "
+           "found to open the Trash folder. Install one such as "
+           "Nautilus, Dolphin, or PCManFM.\"\n";
     out << "X-Idesk-Protected=true\n";
     out.close();
 

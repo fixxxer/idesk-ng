@@ -907,3 +907,18 @@ one-shot commands:
 - A synthetic `xdotool click` correctly dismissed it -- the process
   exited cleanly immediately after, confirmed by checking it was gone
   a second later.
+
+**Follow-up fix, found immediately on real hardware:** the Trash
+icon's `Exec=` called a bare `idesk --show-message ...`, which only
+works if the binary happens to be on `$PATH` -- true after a real
+`make install`, but not when running straight from the build directory
+(`./src/idesk`), exactly how this project gets tested throughout this
+whole file. `resolveSelfPath()` (`Install.cpp`) now reads
+`/proc/self/exe` to embed whatever path is actually running at the
+moment `--install-trash-icon` is invoked, falling back to the bare
+`"idesk"` only if that can't be read. Linux-specific, but this project
+already depends on X11/Xlib/Imlib2 and isn't targeting anything else.
+Verified: the generated `Exec=` line now reads the real, confirmed-
+executable absolute path of the running binary, correct whether run
+from a dev build directory or a real system install, no configuration
+needed either way.
