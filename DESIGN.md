@@ -863,3 +863,47 @@ no X11 needed):
 - `--help` combined with `--install-ideskrc` showed only the help text
   and left `$HOME` completely untouched -- confirmed the directory was
   never even created, not just that the file wasn't written.
+
+## `--show-message` -- DONE (replaces zenity for the Trash icon's fallback)
+
+A fourth one-shot command, `idesk --show-message "TEXT"`: a small,
+centered, word-wrapped popup dismissed by any click or key. Built so
+the Trash icon's no-file-manager-found fallback (and anything else
+later that wants to tell the person something) doesn't need `zenity`
+or any other external dialog tool installed -- one less runtime
+dependency, consistent with testing this project on minimal systems
+with nothing GNOME/KDE-adjacent present at all.
+
+Not a new approach -- reuses the exact Xlib/Xft patterns already used
+throughout this codebase for captions and tooltips (font loading,
+`override_redirect` windows, `XftDraw`), just as a standalone X11
+connection of its own rather than something tied to a running
+idesk-ng session's `AbstractContainer`/config -- it's meant to be
+launched as a brand new process from an icon's `Exec=` line, same as
+any other command. The one genuinely new piece is the word-wrap itself
+(`wrapText()` in `MessageBox.cpp`): a simple greedy line-break,
+measuring each candidate line against the real loaded font via
+`XftTextExtentsUtf8()` rather than estimating; a single word wider
+than the box on its own is left to overflow rather than being split
+mid-word, an acceptable rare edge case.
+
+The Trash icon's `Exec=` (`Install.cpp`) now reads `xdg-open
+~/.local/share/Trash/files || idesk --show-message "..."` instead of
+`zenity --error --text "..."`.
+
+Verified headlessly with a real (virtual) X server -- `Xvfb` plus
+`xdotool`/`x11-utils` for synthetic input and window inspection, since
+this piece genuinely needs X11 unlike most of this project's other
+one-shot commands:
+- The long fallback message correctly wrapped into 2 lines; the
+  resulting window measured exactly 392x70 -- maxTextWidth (360) +
+  padding (16) * 2, confirming the sizing math and the wrap both
+  landed exactly as computed, not just plausibly close.
+- On a 1024x768 virtual screen, the window's absolute position came
+  back as exactly (316, 349) -- `(1024-392)/2, (768-70)/2` to the
+  pixel, confirming the centering math.
+- The process stayed alive and blocked while waiting, confirmed by
+  checking it was still running a second after mapping the window.
+- A synthetic `xdotool click` correctly dismissed it -- the process
+  exited cleanly immediately after, confirmed by checking it was gone
+  a second later.

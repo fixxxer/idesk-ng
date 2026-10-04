@@ -25,6 +25,7 @@
 #include "App.h"
 #include "Migrate.h"
 #include "Install.h"
+#include "MessageBox.h"
 #include <signal.h>
 /*#include <sys/wait.h>*/
 
@@ -67,7 +68,9 @@ bool Application::processArguments()
                  << " with factory defaults (skipped if one exists)\n"
                  << "  --install-trash-icon  add a Trash icon (skipped if"
                  << " one exists)\n"
-                 << "  --migrate-to-desktop  convert .lnk icons to .desktop\n";
+                 << "  --migrate-to-desktop  convert .lnk icons to .desktop\n"
+                 << "  --show-message TEXT   show a small popup with TEXT,"
+                 << " dismissed by any click/key\n";
             return false;
         }
     }
@@ -102,6 +105,22 @@ bool Application::processArguments()
             ranOneShotAction = true;
             if (!installTrashIcon())
                 oneShotFailed = true;
+        }
+        else if (tmpStr == "--show-message")
+        {
+            ranOneShotAction = true;
+            if (i + 1 < argc)
+            {
+                i++; // consume the next argv entry as the message text,
+                     // so it isn't also matched as a flag of its own
+                if (!showMessage(argv[i]))
+                    oneShotFailed = true;
+            }
+            else
+            {
+                cerr << "idesk-ng --show-message: missing message text\n";
+                oneShotFailed = true;
+            }
         }
     }
 

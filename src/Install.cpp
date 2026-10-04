@@ -194,12 +194,16 @@ bool installTrashIcon()
     out << "Name=" << name << "\n";
     out << "Icon=user-trash\n";
     // xdg-open's own failure mode (no file manager registered for
-    // folders) is to silently do nothing -- the zenity fallback is the
-    // only thing that tells the person anything happened at all. Always
+    // folders, or not even installed at all) is to silently do nothing
+    // -- the fallback is the only thing that tells the person anything
+    // happened at all. idesk-ng's own --show-message (MessageBox.{h,cpp})
+    // rather than zenity: no extra runtime dependency beyond idesk-ng
+    // itself, consistent with testing this project on minimal systems
+    // with nothing GNOME/KDE-adjacent installed (see DESIGN.md). Always
     // in English regardless of session language -- see DESIGN.md.
-    out << "Exec=xdg-open ~/.local/share/Trash/files || zenity --error "
-           "--text \"No file manager found to open the Trash folder. "
-           "Install one such as Nautilus, Dolphin, or PCManFM.\"\n";
+    out << "Exec=xdg-open ~/.local/share/Trash/files || idesk "
+           "--show-message \"No file manager found to open the Trash "
+           "folder. Install one such as Nautilus, Dolphin, or PCManFM.\"\n";
     out << "X-Idesk-Protected=true\n";
     out.close();
 
