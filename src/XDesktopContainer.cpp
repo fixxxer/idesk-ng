@@ -28,6 +28,7 @@
 #include "Database.h"
 #include "DesktopIconConfig.h"
 #include "IconLayout.h"
+#include "ContextMenu.h"
 
 #include <csignal>
 #include <sys/select.h>
@@ -593,6 +594,33 @@ XIcon * XDesktopContainer::parseIconEvents()
 
 void XDesktopContainer::exeCurrentAction(XIcon * icon)
 {
+	// Right-click context menu: a plain single right-click has no
+	// default action bound to it anywhere in this project's example
+	// ideskrc files (only "right doubleClk" maps to Execute[1]), so
+	// this doesn't conflict with anything -- and matches the
+	// near-universal convention (right-click, not double-right-click,
+	// opens a context menu) users already expect. Placeholder items
+	// for now -- this piece is just the menu itself; Rename/Delete/
+	// Properties land as their own pieces on top of it.
+	if (icon && currentAction.getRight() == singleClk)
+	{
+		vector<string> items;
+		items.push_back("Rename");
+		items.push_back("Delete");
+		items.push_back("Properties");
+
+		int chosen = showContextMenu(display, DefaultScreen(display),
+		                              rootWindow, imlib_context_get_visual(),
+		                              imlib_context_get_colormap(), items,
+		                              event.xbutton.x_root, event.xbutton.y_root);
+
+		if (chosen >= 0)
+			cerr << "Context menu: \"" << items[chosen] << "\" chosen for \""
+			     << icon->getIconConfig()->getCaption() << "\"\n";
+
+		return;
+	}
+
 			
 	if (actionConfig->getReload()->isOccuring(currentAction)){
 		app->restartIdesk();

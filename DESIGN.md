@@ -922,3 +922,71 @@ Verified: the generated `Exec=` line now reads the real, confirmed-
 executable absolute path of the running binary, correct whether run
 from a dev build directory or a real system install, no configuration
 needed either way.
+
+## Context menu, base piece -- DONE (Rename/Delete/Properties themselves still pending)
+
+Right-click on an icon now opens a small popup menu -- this piece is
+just the menu itself (`ContextMenu.{h,cpp}`): shows placeholder items,
+tracks hover, and returns which one was picked (or -1 if cancelled).
+Rename/Delete/Properties land as their own pieces on top of this.
+
+Hooked onto a plain single right-click (`currentAction.getRight() ==
+singleClk`) in `XDesktopContainer::exeCurrentAction()` -- checked
+first, before any of the configured-action matching below it. Doesn't
+conflict with anything: no example `ideskrc` in this project binds a
+default action to a bare right single-click, only `right doubleClk`
+(mapped to `Execute[1]`), and right-click-for-context-menu (not
+double-right-click) is the near-universal convention users already
+expect.
+
+Unlike `MessageBox.{h,cpp}` (its own standalone X11 connection,
+launched as a brand new process), this runs *inside* the already-live
+idesk-ng session and reuses its existing `Display`/`Visual`/`Colormap`
+-- it needs to know which real icon was clicked and (once Delete etc.
+exist) act on it, not just show text and exit. `XGrabPointer`/
+`XGrabKeyboard` for the menu's duration is what makes a click anywhere
+else on screen -- not just inside the menu -- correctly dismiss it:
+with `owner_events=False`, X11 reports every pointer event in the
+*grab window's own coordinate space* regardless of where it actually
+happened, so "was this click inside the menu" is a single in-bounds
+check against the menu's own width/height, no coordinate translation
+needed.
+
+Verified with a real (virtual) X server end to end -- `Xvfb` plus
+`xdotool` for synthetic clicks and `xwininfo` for window inspection,
+same tools as `--show-message`'s own verification. This one needs a
+full live idesk-ng session (not just the one popup in isolation), so
+the test setup is heavier: a real `.lnk` with an actual `Icon=` field
+pointing at a real image (missing this the first time around produced
+zero icon windows at all and cost a wasted round -- `Cannot determine
+file extension of:` in the log was the tell).
+- A right-click on the icon's image window produced a fourth
+  top-level window sized exactly `100x78` -- matching 3 placeholder
+  items at `ITEM_HEIGHT` (26px) each, 78px total -- at precisely the
+  clicked coordinates.
+- Moving the pointer onto the second row and left-clicking closed the
+  menu (back to 3 windows) and produced exactly `Context menu:
+  "Delete" chosen for "TestIcon"` in the log -- confirming hover
+  tracking, click-to-select, the index-to-item mapping, the menu
+  window's own teardown, *and* that the right live icon (found via
+  the real click coordinates, not guessed) was the one identified.
+- Right-clicking again and then clicking far outside the menu's
+  bounds closed it (back to 3 windows) with no `Context menu:` line
+  at all in the log -- confirming click-outside correctly cancels
+  without selecting anything. Escape shares the exact same cancel
+  path in the code (`selected` stays `-1`) but wasn't separately
+  exercised in this pass.
+
+**Multiple isolated sandbox crashes while building this test setup,
+worth noting for next time:** backgrounding a long-lived process (the
+virtual X server) with `&` and leaving it running *across* separate
+tool calls repeatedly caused a full environment reset (all live
+processes wiped, though the git repository and working tree on disk
+were unaffected both times). Root cause: a background process that
+keeps the invoking shell's stdout/stderr inherited keeps that output
+stream open indefinitely, which hangs whatever is waiting for it to
+close. Fixed by always explicitly redirecting such a process's output
+to a file (`> /tmp/xvfb.log 2>&1`) and, more importantly, doing the
+entire launch-interact-teardown sequence for a given test -- including
+explicitly killing the X server and idesk-ng -- within a single,
+self-contained command rather than spreading it across several.
