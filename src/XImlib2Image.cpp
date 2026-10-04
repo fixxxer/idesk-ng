@@ -33,12 +33,36 @@ XImlib2Image::XImlib2Image(AbstractContainer * c, AbstractIcon * iParent,
                               hasAlpha(false), glowing(false),
                               rgb(NULL), alpha(NULL), alpha2(NULL),
                               argbData(NULL), image(NULL), vectorPixbuf(NULL),
-                              tooltip(NULL), colorMod(NULL)
+                              tooltip(NULL), colorMod(NULL), window(0), display(NULL)
 {   
 }
 
 XImlib2Image::~XImlib2Image()
 {
+    // The icon's own X window. Nothing ever destroyed it: this destructor
+    // was completely empty until the memory-leak pass, which only taught
+    // it to free Imlib2/gdk-pixbuf memory -- never this server-side
+    // resource, because every earlier code path that destroyed an icon
+    // (shutdown, Reload) ended the process right after. Delete is the
+    // first to destroy icons mid-session, and the window outlived its
+    // icon as a visible ghost that nothing handled events for. `window`
+    // is zero-initialized in the constructor, so an icon whose
+    // createWindow() failed before XCreateWindow() safely skips this
+    // (destroying an uninitialized id would raise BadWindow, whose
+    // default Xlib handler exits the whole process).
+    // Both must be set: `display` is assigned only by configure(), which
+    // runs for the real icon image but never for XImlib2Caption (a
+    // subclass sharing this member `window`, created and destroyed by
+    // ~XImlib2Caption() itself using the container's display). Without
+    // this, a caption's window was destroyed twice -- the second time
+    // through an uninitialized Display* -- and Delete crashed the whole
+    // process (found with gdb).
+    if (window && display)
+    {
+        XDestroyWindow(display, window);
+        window = 0;
+    }
+
     // Most icons (plain PNG/XPM, loaded by Imlib2's own native loader)
     // never touch any of these -- they stay NULL and every delete/free
     // below is a safe no-op. Only SVG-sourced icons

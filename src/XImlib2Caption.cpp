@@ -62,6 +62,7 @@ XImlib2Caption::~XImlib2Caption()
         XftFontClose(xContainer->getDisplay(), font);
 
      XDestroyWindow(xContainer->getDisplay(), window);
+     window = 0; // single owner: the base destructor must not destroy it again
      XftDrawDestroy(fontDrawHandle);
 }
 

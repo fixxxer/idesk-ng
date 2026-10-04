@@ -663,90 +663,22 @@ void XDesktopContainer::deleteIcon(XIcon * icon)
 	// no-op when there's no matching entry.
 	removeLayoutPosition(path);
 
-	// Icon windows use background_pixmap = ParentRelative (see
-	// XImlib2Image.cpp) -- the lightweight standard X11 way to look
-	// "transparent" against the desktop wallpaper without copying any
-	// pixels themselves. Destroying such a window does NOT
-	// automatically repaint the parent underneath it (a well-known
-	// X11 gotcha, not a bug in that rendering choice): the window's
-	// last-rendered pixels simply stay on screen until something
-	// explicitly asks for that area to be repainted. Every other
-	// place this codebase destroys icon windows (normal shutdown, a
-	// full Reload) either exits entirely or rebuilds the whole
-	// background, so none of them ever needed to handle this -- this
-	// is the first time a single icon is removed while the session
-	// and its background stay exactly as they were. Query the real
-	// on-screen geometry of this icon's windows (image + caption)
-	// directly from X before destroying them, union their bounds, and
-	// XClearArea(..., exposures=True) that rectangle afterward so the
-	// wallpaper underneath reappears immediately -- found and fixed
-	// after confirming on real hardware (Fluxbox) that the icon
-	// stopped responding to clicks (the window really was destroyed)
-	// but its image lingered as a visual ghost.
-	int clearX = 0, clearY = 0, clearRight = 0, clearBottom = 0;
-	bool haveRect = false;
-
-	XImlib2Image * xImg = dynamic_cast<XImlib2Image *>(icon->getImage());
-	if (xImg)
-	{
-		Window * w = xImg->getWindow();
-		if (w)
-		{
-			XWindowAttributes attrs;
-			if (XGetWindowAttributes(display, *w, &attrs))
-			{
-				clearX = attrs.x;
-				clearY = attrs.y;
-				clearRight = attrs.x + attrs.width;
-				clearBottom = attrs.y + attrs.height;
-				haveRect = true;
-			}
-		}
-	}
-
-	XImlib2Caption * xCap = dynamic_cast<XImlib2Caption *>(icon->getCaption());
-	if (xCap)
-	{
-		Window * cw = xCap->getWindow();
-		if (cw)
-		{
-			XWindowAttributes attrs;
-			if (XGetWindowAttributes(display, *cw, &attrs))
-			{
-				if (!haveRect)
-				{
-					clearX = attrs.x;
-					clearY = attrs.y;
-					clearRight = attrs.x + attrs.width;
-					clearBottom = attrs.y + attrs.height;
-					haveRect = true;
-				}
-				else
-				{
-					clearX = min(clearX, attrs.x);
-					clearY = min(clearY, attrs.y);
-					clearRight = max(clearRight, attrs.x + attrs.width);
-					clearBottom = max(clearBottom, attrs.y + attrs.height);
-				}
-			}
-		}
-	}
-
 	// Removed from the live session immediately -- no restart needed
 	// to see it disappear. Only the XIcon (the visual/window side)
 	// is deleted here; the underlying DesktopIconConfig stays in
 	// DesktopConfig::iconConfigList and is cleaned up with everything
 	// else at normal shutdown -- harmless, and not worth the extra
 	// bookkeeping of also removing it from that list mid-session.
+	// Deleting the XIcon is also what destroys its three X windows
+	// (image, caption, tooltip) -- see ~XImlib2Image(): until it
+	// learned to destroy its own window, the image window outlived
+	// the icon as a visible, unclickable ghost.
 	vector<AbstractIcon *>::iterator it =
 	    find(iconList.begin(), iconList.end(), icon);
 	if (it != iconList.end())
 		iconList.erase(it);
 	delete icon;
-
-	if (haveRect)
-		XClearArea(display, rootWindow, clearX, clearY,
-		           clearRight - clearX, clearBottom - clearY, True);
+	XFlush(display);
 }
 
 void XDesktopContainer::exeCurrentAction(XIcon * icon)

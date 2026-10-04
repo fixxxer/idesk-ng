@@ -1043,45 +1043,59 @@ Verified end-to-end with a real virtual X server, in two passes:
   the pixel) -- confirming the refusal path fires correctly and gives
   real feedback rather than silently doing nothing.
 
-**Follow-up fix, found immediately on real hardware (Fluxbox):** after
-a successful delete, the icon stopped responding to clicks (confirming
-its window really was destroyed) but its image stayed visible on
-screen -- a ghost.
+**Follow-up fix, found immediately on real hardware (Fluxbox) -- diagnosed
+wrong the first time, kept here because the wrong turn is instructive:**
+after a successful delete, the icon stopped responding to clicks but its
+image stayed on screen, a ghost. (As first reported, only the caption had
+disappeared.)
 
-Root cause: icon windows use `background_pixmap = ParentRelative`
-(`XImlib2Image.cpp`) -- the lightweight standard X11 way to look
-"transparent" against the desktop wallpaper without the icon copying
-any pixels itself, it just shows through to whatever's really behind
-it (the root window). Destroying a `ParentRelative` window does *not*
-automatically repaint the parent underneath -- a well-known, easy-to-
-miss X11 behavior, not a flaw in that rendering choice: the window's
-last-rendered pixels simply stay on screen until something explicitly
-asks for that area to be repainted. Every other place this codebase
-destroys icon windows (normal shutdown, a full Reload) either exits
-the whole process or rebuilds the entire background from scratch, so
-none of them had ever needed to handle this -- Delete is the first
-time a single icon is ever removed while the session and its
-background stay exactly as they were.
+*First diagnosis (wrong):* that `ParentRelative` windows need an explicit
+`XClearArea` to repaint the parent. A debug build on real hardware showed
+`XClearArea` firing with a sane rectangle and a real `_XROOTPMAP_ID`
+wallpaper pixmap present -- and the ghost remained. In hindsight the first
+report already held the real clue: the caption's area *did* repaint on its
+own, which is exactly what an X server does when any window over a root
+with a background is destroyed. The `XClearArea` code was removed.
 
-Fixed in `deleteIcon()`: before destroying the icon, query the real
-on-screen geometry of its image and caption windows directly from X
-(`XGetWindowAttributes`, not any internally-tracked position -- ground
-truth from the X server itself), union their bounds, and after
-deletion call `XClearArea(display, rootWindow, ..., exposures=True)`
-on that rectangle so the wallpaper underneath reappears immediately.
+*Actual root cause:* every icon owns three X windows -- image, caption,
+tooltip. `~XImlib2Caption` and `~XImlib2ToolTip` destroyed theirs;
+`~XImlib2Image` never destroyed the icon image window. That destructor was
+completely empty until the memory-leak pass, and that pass only taught it
+to free Imlib2/gdk-pixbuf memory, never this server-side resource. It never
+mattered before because every earlier path that destroys icons (shutdown,
+Reload) ends the process right away, and the X server reclaims a dead
+client's windows. Delete is the first to destroy icons mid-session: the
+orphaned window stayed alive on the server, still painted, but no longer
+matched to any icon in `iconList`, so idesk-ng dropped its events -- a
+visible, unclickable ghost. An earlier verification of this feature also
+misread its own numbers: the window count fell 6 -> 4 and was read as
+"image and caption destroyed"; it was caption and tooltip, with the image
+window still orphaned.
 
-Verified the computed rectangle against the real window tree on a
-virtual X server: for an icon with a `32x32+50+50` image window and an
-`87x17+25+86` caption window, the logged clear rectangle came back as
-exactly `x=25 y=50 w=87 h=53` -- `min(50,25), min(50,86)` for the
-origin and `max(82,112)-25, max(82,103)-50` for the size, matching the
-true geometric union to the pixel. Could not get a clean *visual*
-pixel-color confirmation in this specific sandboxed Xvfb setup (a
-background-color-setting quirk unrelated to this fix -- `xsetroot`
-reported success but the captured framebuffer stayed black regardless
-of the color requested) -- the geometry match gives strong confidence
-the fix is correct, but actually seeing the ghost disappear needs
-confirming on real hardware, where the bug was first observed.
+*Fix:* `window` (now zero-initialized) is destroyed in `~XImlib2Image`.
+
+*Second bug, found by the fix itself (with gdb):* `XImlib2Caption` privately
+inherits `XImlib2Image` and shares the member `window`. `~XImlib2Caption`
+destroys it using the container's display, then the base destructor
+destroyed it again through the base `display` member -- which `configure()`
+sets only for the real icon image, never for a caption -- i.e. an
+uninitialized `Display *`: SIGSEGV inside `XDestroyWindow`, and the signal
+handler's silent `_exit(1)` made the whole process simply vanish. Fixed
+twice over: `display` is zero-initialized and the base destructor requires
+both `window` and `display`; `~XImlib2Caption` also zeroes `window` after
+destroying it (single owner).
+
+*Verification (virtual X server).* Checking that the process is still alive
+at every step matters here: an earlier "0 windows after delete" reading was
+meaningless, because a crashed client's windows vanish with it. Two icons:
+6 windows; delete one -> 3 and process alive; delete the other -> 0 and
+process alive; both files in the Trash (before the fix a single delete left
+4). Clean shutdown (SIGTERM) re-tested after the destructor change with icon
+shadows on, including `SnapShadow`'s extra windows (8 windows for 2 icons
+instead of 6): exit code 0 both times. Not verified: Delete itself with
+`SnapShadow` enabled (only shutdown was tested there, through the same
+destructor chain), and -- most importantly -- that the ghost is visually
+gone on a real Fluxbox session, which is the user's to confirm.
 
 **Follow-up: Delete also removes the icon's entry from the layout
 DB.** Not just tidiness -- a real (if narrow) correctness gap:
