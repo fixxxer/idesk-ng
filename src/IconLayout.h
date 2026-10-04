@@ -58,4 +58,17 @@ void seedLayoutPosition(const string & path, int x, int y);
 // normal, not errors.
 bool getLayoutPosition(const string & path, int & outX, int & outY);
 
+// Removes the saved position for the icon at the given absolute path,
+// if any. Called from the context menu's Delete action: without this,
+// a deleted icon's old position would silently reapply to any future
+// icon that happens to reuse the exact same path (a package reinstall
+// dropping a .desktop at the same spot, or recreating an icon with the
+// same name) -- unlike a rename, where the same staleness is an
+// accepted, documented trade-off (see "Legacy / standard icon
+// support" above) since there's no realistic scenario for the old
+// path to be reused by something else. Safe to call even if the
+// layout DB doesn't exist or has no entry for this path -- does
+// nothing in either case.
+void removeLayoutPosition(const string & path);
+
 #endif

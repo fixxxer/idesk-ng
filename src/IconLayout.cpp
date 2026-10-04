@@ -27,6 +27,7 @@
 #include <sys/stat.h>
 #include <fstream>
 #include <cstdlib>
+#include <algorithm>
 
 using namespace std;
 
@@ -105,4 +106,32 @@ bool getLayoutPosition(const string & path, int & outX, int & outY)
     outX = atoi(table.Query("X").c_str());
     outY = atoi(table.Query("Y").c_str());
     return true;
+}
+
+void removeLayoutPosition(const string & path)
+{
+    string layoutDbPath = getLayoutDbPath();
+
+    struct stat st;
+    if (stat(layoutDbPath.c_str(), &st) != 0)
+        return; // no layout DB yet -- nothing to remove
+
+    Database db(layoutDbPath, false);
+
+    bool found = false;
+    for (vector<Table>::iterator it = db.Tables.begin();
+         it != db.Tables.end(); ++it)
+    {
+        if (it->Title == path)
+        {
+            db.Tables.erase(it);
+            found = true;
+            break; // Title is a unique key here (seedLayoutPosition()
+                   // overwrites rather than duplicates), so the first
+                   // match is the only one
+        }
+    }
+
+    if (found)
+        db.Write(layoutDbPath);
 }

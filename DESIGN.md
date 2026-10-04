@@ -1082,3 +1082,30 @@ reported success but the captured framebuffer stayed black regardless
 of the color requested) -- the geometry match gives strong confidence
 the fix is correct, but actually seeing the ghost disappear needs
 confirming on real hardware, where the bug was first observed.
+
+**Follow-up: Delete also removes the icon's entry from the layout
+DB.** Not just tidiness -- a real (if narrow) correctness gap:
+without this, a future icon that happens to land on the exact same
+absolute path as one that was just deleted (a package reinstalling a
+`.desktop` at a standard location, or recreating an icon with the same
+name) would silently inherit the deleted icon's old position from the
+still-present `layout.db` entry. Unlike a rename, where the same kind
+of staleness is an accepted, already-documented trade-off (see
+"Legacy / standard icon support" earlier in this file) because there's
+no realistic scenario for the *old* path to get reused by something
+else, a deleted path absolutely can be reused.
+
+New `removeLayoutPosition(path)` in `IconLayout.{h,cpp}`: opens the
+layout DB (a no-op if it doesn't exist -- nothing to remove), finds
+the matching table by `Title` (the absolute path, same key
+`seedLayoutPosition()`/`getLayoutPosition()` already use) and erases
+it, writing back only if something was actually found. Called from
+`deleteIcon()` right after a successful trash, unconditionally --
+harmless even for a `.lnk`-origin icon that was never in the layout DB
+to begin with.
+
+Verified end-to-end on a virtual X server: seeded `layout.db` with a
+real entry for a `.desktop` icon's path, confirmed the icon loaded at
+exactly that seeded position (300,200 in the test), deleted it through
+the context menu, and confirmed `layout.db` came back completely empty
+afterward.

@@ -655,6 +655,14 @@ void XDesktopContainer::deleteIcon(XIcon * icon)
 		return;
 	}
 
+	// Without this, a future icon that happens to reuse this exact
+	// path (a package reinstall, recreating an icon with the same
+	// name) would silently inherit this deleted icon's old position.
+	// Harmless to call even for a .lnk-origin icon that was never in
+	// the layout DB to begin with -- removeLayoutPosition() is a
+	// no-op when there's no matching entry.
+	removeLayoutPosition(path);
+
 	// Icon windows use background_pixmap = ParentRelative (see
 	// XImlib2Image.cpp) -- the lightweight standard X11 way to look
 	// "transparent" against the desktop wallpaper without copying any
