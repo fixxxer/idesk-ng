@@ -1042,3 +1042,43 @@ Verified end-to-end with a real virtual X server, in two passes:
   (`(1024-392)/2, (768-49)/2` matched the reported window position to
   the pixel) -- confirming the refusal path fires correctly and gives
   real feedback rather than silently doing nothing.
+
+**Follow-up fix, found immediately on real hardware (Fluxbox):** after
+a successful delete, the icon stopped responding to clicks (confirming
+its window really was destroyed) but its image stayed visible on
+screen -- a ghost.
+
+Root cause: icon windows use `background_pixmap = ParentRelative`
+(`XImlib2Image.cpp`) -- the lightweight standard X11 way to look
+"transparent" against the desktop wallpaper without the icon copying
+any pixels itself, it just shows through to whatever's really behind
+it (the root window). Destroying a `ParentRelative` window does *not*
+automatically repaint the parent underneath -- a well-known, easy-to-
+miss X11 behavior, not a flaw in that rendering choice: the window's
+last-rendered pixels simply stay on screen until something explicitly
+asks for that area to be repainted. Every other place this codebase
+destroys icon windows (normal shutdown, a full Reload) either exits
+the whole process or rebuilds the entire background from scratch, so
+none of them had ever needed to handle this -- Delete is the first
+time a single icon is ever removed while the session and its
+background stay exactly as they were.
+
+Fixed in `deleteIcon()`: before destroying the icon, query the real
+on-screen geometry of its image and caption windows directly from X
+(`XGetWindowAttributes`, not any internally-tracked position -- ground
+truth from the X server itself), union their bounds, and after
+deletion call `XClearArea(display, rootWindow, ..., exposures=True)`
+on that rectangle so the wallpaper underneath reappears immediately.
+
+Verified the computed rectangle against the real window tree on a
+virtual X server: for an icon with a `32x32+50+50` image window and an
+`87x17+25+86` caption window, the logged clear rectangle came back as
+exactly `x=25 y=50 w=87 h=53` -- `min(50,25), min(50,86)` for the
+origin and `max(82,112)-25, max(82,103)-50` for the size, matching the
+true geometric union to the pixel. Could not get a clean *visual*
+pixel-color confirmation in this specific sandboxed Xvfb setup (a
+background-color-setting quirk unrelated to this fix -- `xsetroot`
+reported success but the captured framebuffer stayed black regardless
+of the color requested) -- the geometry match gives strong confidence
+the fix is correct, but actually seeing the ghost disappear needs
+confirming on real hardware, where the bug was first observed.
