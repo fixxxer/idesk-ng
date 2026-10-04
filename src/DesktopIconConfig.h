@@ -112,6 +112,7 @@ class DesktopIconConfig : public AbstractIconConfig
         int x, y;
         int width, height;
         IconOrigin origin;
+        bool protectedFromDelete;
 
     public:
 	DesktopIconConfig(const string & fName, Table &table, CommonOptions * parentData);
@@ -123,6 +124,11 @@ class DesktopIconConfig : public AbstractIconConfig
 
         virtual void setOrigin(IconOrigin o) { origin = o; }
         virtual IconOrigin getOrigin() { return origin; }
+
+        // X-Idesk-Protected=true in a .desktop (see Install.cpp's
+        // --install-trash-icon, the first icon to set this) -- the
+        // context menu's Delete action checks this and refuses.
+        virtual bool isProtected() { return protectedFromDelete; }
 
         virtual int getX() { return x; }
         virtual int getY() { return y; }

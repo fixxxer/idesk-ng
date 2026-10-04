@@ -32,6 +32,10 @@
 
 #include <csignal>
 #include <sys/select.h>
+#include <algorithm>
+#include <gio/gio.h>
+#include <unistd.h>
+#include <climits>
 
 #include <X11/keysym.h>
 #ifdef HAVE_STARTUP_NOTIFICATION
@@ -45,6 +49,23 @@ XDesktopContainer *xcontainer;
 // this exists instead of calling _exit() straight from the signal
 // handler.
 extern volatile sig_atomic_t quitRequested;
+
+// Same self-path resolution as Install.cpp's resolveSelfPath() (kept
+// duplicated rather than shared, consistent with this project's
+// existing convention for small, independent pieces) -- needed here so
+// the "this icon is protected" message, launched via the existing
+// runCommand() fork+exec helper below, calls back into idesk-ng
+// correctly whether running from a dev build directory or a real
+// system install.
+static string resolveSelfPathForMessage()
+{
+    char buf[PATH_MAX];
+    ssize_t len = readlink("/proc/self/exe", buf, sizeof(buf) - 1);
+    if (len <= 0)
+        return "idesk";
+    buf[len] = '\0';
+    return string(buf);
+}
 
 XDesktopContainer::XDesktopContainer(AbstractApp * a) : DesktopContainer(a)
 {
@@ -592,6 +613,59 @@ XIcon * XDesktopContainer::parseIconEvents()
     return icon;
 }
 
+// Always moves to the desktop trash (g_file_trash(), the standard
+// freedesktop.org mechanism -- works without any GNOME/KDE/XFCE
+// installed, see DESIGN.md's --install-trash-icon entry) rather than
+// permanently deleting, and treats every icon origin the same way
+// (.lnk, .desktop, or a plain file/folder) -- deliberately not a
+// "pretty trash here, gone forever there" split by origin or
+// directory; see the Point 3 design discussion in DESIGN.md for why.
+// Refuses outright for a protected icon (X-Idesk-Protected=true, so
+// far only the Trash icon itself) rather than silently doing nothing,
+// so the person gets feedback either way.
+void XDesktopContainer::deleteIcon(XIcon * icon)
+{
+	DesktopIconConfig * dIconConfig =
+	    dynamic_cast<DesktopIconConfig *>(icon->getIconConfig());
+	if (!dIconConfig)
+		return;
+
+	if (dIconConfig->isProtected())
+	{
+		string cmd = resolveSelfPathForMessage() +
+		    " --show-message \"This icon is protected and can't be deleted.\"";
+		runCommand(cmd);
+		return;
+	}
+
+	string path = dIconConfig->getIconFilename();
+
+	GFile * file = g_file_new_for_path(path.c_str());
+	GError * error = NULL;
+	bool trashed = g_file_trash(file, NULL, &error);
+	if (error)
+		g_error_free(error);
+	g_object_unref(file);
+
+	if (!trashed)
+	{
+		cerr << "Could not move \"" << path << "\" to trash\n";
+		return;
+	}
+
+	// Removed from the live session immediately -- no restart needed
+	// to see it disappear. Only the XIcon (the visual/window side)
+	// is deleted here; the underlying DesktopIconConfig stays in
+	// DesktopConfig::iconConfigList and is cleaned up with everything
+	// else at normal shutdown -- harmless, and not worth the extra
+	// bookkeeping of also removing it from that list mid-session.
+	vector<AbstractIcon *>::iterator it =
+	    find(iconList.begin(), iconList.end(), icon);
+	if (it != iconList.end())
+		iconList.erase(it);
+	delete icon;
+}
+
 void XDesktopContainer::exeCurrentAction(XIcon * icon)
 {
 	// Right-click context menu: a plain single right-click has no
@@ -614,7 +688,9 @@ void XDesktopContainer::exeCurrentAction(XIcon * icon)
 		                              imlib_context_get_colormap(), items,
 		                              event.xbutton.x_root, event.xbutton.y_root);
 
-		if (chosen >= 0)
+		if (chosen >= 0 && items[chosen] == "Delete")
+			deleteIcon(icon); // may free `icon` -- nothing below may touch it
+		else if (chosen >= 0)
 			cerr << "Context menu: \"" << items[chosen] << "\" chosen for \""
 			     << icon->getIconConfig()->getCaption() << "\"\n";
 

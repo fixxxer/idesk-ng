@@ -990,3 +990,55 @@ to a file (`> /tmp/xvfb.log 2>&1`) and, more importantly, doing the
 entire launch-interact-teardown sequence for a given test -- including
 explicitly killing the X server and idesk-ng -- within a single,
 self-contained command rather than spreading it across several.
+
+## Context menu: Delete -- DONE
+
+The first real action on top of the context menu base piece.
+`XDesktopContainer::deleteIcon()` always moves the icon's underlying
+file to the desktop trash via `g_file_trash()` (GIO; the standard
+freedesktop.org mechanism, works without any GNOME/KDE/XFCE installed
+at all, same as `--install-trash-icon`) -- deliberately never a
+permanent delete, and deliberately the exact same path for every icon
+origin (`.lnk`, `.desktop`, or a plain file/folder in `~/Desktop`),
+not a "pretty trash here, permanent there" split by origin or
+directory. See the Point 3 design discussion earlier in this file for
+why that split was rejected.
+
+**`X-Idesk-Protected` is enforced for the first time.**
+`DesktopIconConfig` didn't retain this field anywhere after
+construction (`setIconOptions()` only ever extracted specific fields
+like caption/command/x/y into its own members) -- added
+`protectedFromDelete` (set from `table.Query("X-Idesk-Protected") ==
+"true"`, zero-initialized in the constructor same as everything else
+in this class) plus a public `isProtected()`. A protected icon's
+Delete is refused outright -- not silently ignored -- via a
+`--show-message` popup explaining why, launched through the existing
+`runCommand()` fork+exec helper (the same one every icon's own `Exec=`
+already goes through) rather than blocking the main process on it.
+
+**Live removal, no restart needed.** On a successful trash, the
+`XIcon` (not the underlying `DesktopIconConfig`, which stays in
+`DesktopConfig::iconConfigList` and is cleaned up at normal shutdown
+same as always -- not worth the extra bookkeeping of also removing it
+mid-session) is erased from `iconList` and deleted, which cascades
+through the whole destructor chain fixed earlier in this file --
+caption, image, tooltip, everything -- so the icon disappears from
+the screen immediately.
+
+Verified end-to-end with a real virtual X server, in two passes:
+- **Normal icon:** right-clicked, selected Delete. The underlying file
+  was confirmed gone from its original location and present in
+  `~/.local/share/Trash/files/` immediately after. The live window
+  count dropped by exactly the icon's own windows (confirmed via a
+  clean before/after delta), with no restart -- the icon visibly
+  disappeared mid-session.
+- **Protected icon** (a `.desktop` with `X-Idesk-Protected=true`,
+  same as `--install-trash-icon` generates): right-clicked, selected
+  Delete. The file was confirmed still present on disk afterward, the
+  icon's own windows were confirmed still present and unchanged, and
+  a new window titled "idesk-ng" appeared, sized and centered exactly
+  as `--show-message` always does -- confirmed via the same
+  pixel-exact centering math already verified for that piece
+  (`(1024-392)/2, (768-49)/2` matched the reported window position to
+  the pixel) -- confirming the refusal path fires correctly and gives
+  real feedback rather than silently doing nothing.

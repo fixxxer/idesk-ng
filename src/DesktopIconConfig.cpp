@@ -31,6 +31,7 @@ DesktopIconConfig::DesktopIconConfig(const string & fName, Table &table, CommonO
     iconFilename = fName;
     origin = ORIGIN_LNK; // safe default; scanIconDirectory() sets this
                          // explicitly for every non-.lnk construction site
+    protectedFromDelete = false;
     
     common = new CommonOptions();
     
@@ -64,6 +65,8 @@ void DesktopIconConfig::setIconOptions(Table table)
     y = atoi(table.Query("Y").c_str());
     width = atoi(table.Query("Width").c_str());
     height = atoi(table.Query("Height").c_str());
+
+    protectedFromDelete = (table.Query("X-Idesk-Protected") == "true");
 
     if (table.ArrayExists("Command"))
         commandArray = table.QueryArray("Command");

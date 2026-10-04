@@ -105,6 +105,7 @@ class XDesktopContainer : public DesktopContainer
         void parseNonIconEvents();
         XIcon * parseIconEvents();
         void exeCurrentAction(XIcon * icon);
+        void deleteIcon(XIcon * icon);
 
         virtual void setEventState();
         virtual void translateButtonRelease(int button);
