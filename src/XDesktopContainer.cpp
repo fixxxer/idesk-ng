@@ -962,13 +962,9 @@ void XDesktopContainer::runCommand(const string & command)
     } else if (pid < 0) {
         fprintf(stderr, "Failed to fork process to run command '%s': %s\n", command.c_str(), strerror(errno));
     } else {
-        // Deliberately NOT waiting for the child. This used to be a
-        // blocking waitpid(pid, NULL, 0) -- present since the original
-        // 0.7.5 sources -- which froze every icon, tooltip and menu for
-        // as long as the launched program stayed open (Exec=firefox
-        // meant a dead desktop until Firefox quit), while X events piled
-        // up unread in the meantime. The child runs in its own session
-        // (setsid above) and is reaped by the SIGCHLD handler in App.cpp.
+        // wait only for the intermediate child, which exits immediately
+        int status;
+        while (waitpid(pid, &status, 0) < 0 && errno == EINTR) { }
     }
 }
 int XDesktopContainer::widthOfScreen()
@@ -981,3 +977,15 @@ int XDesktopContainer::heightOfScreen()
     return HeightOfScreen(DefaultScreenOfDisplay(display));
 }
 
+// Launches `command` through /bin/sh and returns without waiting for it.
+//
+// Double fork, the standard way to start something you don't want to be
+// responsible for: the intermediate child exits at once, so the grandchild
+// that actually runs the program is adopted by init (or the session's
+// subreaper) and nobody in idesk-ng ever has to reap it. This replaces two
+// earlier designs: the original blocking waitpid() (every icon, tooltip and
+// menu froze while the launched program was open), and a SIGCHLD handler that
+// reaped *every* child -- which also steals the exit status of children other
+// libraries spawn and wait for themselves. On current Ubuntu gdk-pixbuf loads
+// each image through a glycin helper process, with a thread blocked in wait4()
+// for it; idesk-ng must never touch children it did not create.
