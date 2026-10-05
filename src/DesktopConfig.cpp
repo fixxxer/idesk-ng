@@ -250,32 +250,14 @@ void DesktopConfig::setDesktopOnlyOptions(Table table)
 }
 
 
-void DesktopConfig::scanIconDirectory(const string & dir, bool warnOnUnrecognized,
-                                       const string & excludeFilename,
-                                       bool autoIconizePlainFiles)
+// Builds the config for one icon file, or returns NULL if the file isn't (or
+// can't be shown as) an icon. Used both when scanning a directory at startup
+// and to re-read a single icon in place (rebuildIconConfig() below).
+DesktopIconConfig * DesktopConfig::createIconConfig(const string & filename,
+                                                     const string & displayName,
+                                                     bool warnOnUnrecognized,
+                                                     bool autoIconizePlainFiles)
 {
-    struct dirent **files;
-    int fileCount = scandir(dir.c_str(), &files, 0, alphasort);
-    if (fileCount == -1)
-    {
-        cerr << "No icons found in " << dir << "\n";
-        return;
-    }
-
-    for(int i = 0; i < fileCount; i++)
-    {
-        string entryName = files[i]->d_name;
-        if ((!excludeFilename.empty() && entryName == excludeFilename) ||
-            entryName == "layout.db")
-        {
-            free(files[i]);
-            continue; // ideskrc and layout.db live alongside the icons
-                      // -- neither is one, not even worth a warning about
-        }
-
-        if (!backgroundFile(files[i]->d_name))
-        {
-            string filename = dir + files[i]->d_name;
 
             if (filename.size() > 4 && filename.substr(filename.size()-4,filename.size()) == ".lnk")
             {
@@ -286,9 +268,9 @@ void DesktopConfig::scanIconDirectory(const string & dir, bool warnOnUnrecognize
 				{   
 					DesktopIconConfig *iconPtr = new DesktopIconConfig(filename, table, common); 
 					iconPtr->setOrigin(DesktopIconConfig::ORIGIN_LNK);
-					iconConfigList.push_back(iconPtr);
+					return iconPtr;
 				} else
-					cerr << "Error: \"" << files[i]->d_name << "\" is not a valid .lnk desktop icon\n";
+					cerr << "Error: \"" << displayName << "\" is not a valid .lnk desktop icon\n";
 			} else if (filename.size() > 8 && filename.substr(filename.size()-8,filename.size()) == ".desktop")
 			{
 				FreeDesktopIcon fdi(filename);
@@ -322,12 +304,12 @@ void DesktopConfig::scanIconDirectory(const string & dir, bool warnOnUnrecognize
 					}
 					DesktopIconConfig *iconPtr = new DesktopIconConfig(filename, fdi, common);
 					iconPtr->setOrigin(DesktopIconConfig::ORIGIN_LAYOUT_DB);
-					iconConfigList.push_back(iconPtr);
+					return iconPtr;
 				} else if (!fdi.isValid())
-					cerr << "Error: \"" << files[i]->d_name << "\" is not a valid .desktop desktop icon\n";
+					cerr << "Error: \"" << displayName << "\" is not a valid .desktop desktop icon\n";
 				// else: well-formed but Hidden=true/NoDisplay=true -- silently skipped, not an error
 			} else if (warnOnUnrecognized)
-				cerr << "Warning: \"" << files[i]->d_name << "\" is not a recognized desktop icon (.lnk or .desktop)\n";
+				cerr << "Warning: \"" << displayName << "\" is not a recognized desktop icon (.lnk or .desktop)\n";
 			else if (autoIconizePlainFiles)
 			{
 				// A plain file/folder/symlink in the XDG Desktop dir --
@@ -344,12 +326,75 @@ void DesktopConfig::scanIconDirectory(const string & dir, bool warnOnUnrecognize
 				}
 				DesktopIconConfig *iconPtr = new DesktopIconConfig(filename, gfi, common);
 				iconPtr->setOrigin(DesktopIconConfig::ORIGIN_LAYOUT_DB);
-				iconConfigList.push_back(iconPtr);
+				return iconPtr;
 			}
 			// else: Desktop.AutoIcons is off -- a plain file that isn't
 			// (yet) turned into an icon is silently skipped rather than
 			// warned about, since an ordinary ~/Desktop is expected to
 			// hold plenty of files that were never meant to be icons.
+
+
+    return NULL;
+}
+
+// Re-reads one icon from its file, with exactly the code startup uses, and
+// swaps the result into the same slot of the config list. The old config is
+// left alive and returned to the caller to delete: the XIcon still showing it
+// has to be torn down first. Returns NULL (list unchanged) if the file can no
+// longer be read as an icon.
+DesktopIconConfig * DesktopConfig::rebuildIconConfig(DesktopIconConfig * old)
+{
+    string path = old->getIconFilename();
+
+    // false/true: a plain file is only ever an icon when it came from the
+    // XDG Desktop dir with Desktop.AutoIcons on, which is the only way it was
+    // an icon in the first place; the flags don't matter for .lnk/.desktop
+    DesktopIconConfig * fresh = createIconConfig(path, path, false, true);
+    if (!fresh)
+        return NULL;
+
+    for (size_t i = 0; i < iconConfigList.size(); i++)
+        if (iconConfigList[i] == old)
+        {
+            iconConfigList[i] = fresh;
+            return fresh;
+        }
+
+    delete fresh; // old wasn't in the list -- shouldn't happen
+    return NULL;
+}
+
+void DesktopConfig::scanIconDirectory(const string & dir, bool warnOnUnrecognized,
+                                       const string & excludeFilename,
+                                       bool autoIconizePlainFiles)
+{
+    struct dirent **files;
+    int fileCount = scandir(dir.c_str(), &files, 0, alphasort);
+    if (fileCount == -1)
+    {
+        cerr << "No icons found in " << dir << "\n";
+        return;
+    }
+
+    for(int i = 0; i < fileCount; i++)
+    {
+        string entryName = files[i]->d_name;
+        if ((!excludeFilename.empty() && entryName == excludeFilename) ||
+            entryName == "layout.db")
+        {
+            free(files[i]);
+            continue; // ideskrc and layout.db live alongside the icons
+                      // -- neither is one, not even worth a warning about
+        }
+
+        if (!backgroundFile(files[i]->d_name))
+        {
+            string filename = dir + files[i]->d_name;
+            DesktopIconConfig * iconPtr = createIconConfig(filename, files[i]->d_name,
+                                                            warnOnUnrecognized,
+                                                            autoIconizePlainFiles);
+            if (iconPtr)
+                iconConfigList.push_back(iconPtr);
 
             free(files[i]);
         }

@@ -135,6 +135,11 @@ class DesktopIconConfig : public AbstractIconConfig
         // path instead of resurrecting a layout entry for the old one.
         virtual void setIconFilename(const string & f) { iconFilename = f; }
 
+        // Sets where this icon is without writing anything anywhere (unlike
+        // saveIcon()). Used when an icon is rebuilt in place, to keep it
+        // exactly where it currently is.
+        virtual void setPosition(int xc, int yc) { x = xc; y = yc; }
+
         virtual int getX() { return x; }
         virtual int getY() { return y; }
         virtual int getWidth() { return width; }

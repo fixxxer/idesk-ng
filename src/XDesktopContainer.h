@@ -107,6 +107,7 @@ class XDesktopContainer : public DesktopContainer
         void exeCurrentAction(XIcon * icon);
         void deleteIcon(XIcon * icon);
         void renameIcon(XIcon * icon);
+        bool refreshIcon(XIcon * oldIcon);
         void notify(const string & text);
 
         virtual void setEventState();

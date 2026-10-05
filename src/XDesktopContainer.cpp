@@ -734,14 +734,70 @@ void XDesktopContainer::notify(const string & text)
 	           " --show-message " + shellQuote(text));
 }
 
+// Re-reads one icon from disk and swaps it in on screen, in place -- no
+// restart. Builds a fresh DesktopIconConfig from the icon's file (the code
+// startup uses, via DesktopConfig::rebuildIconConfig, which also swaps it into
+// the config list), builds and shows a new XIcon for it at the old icon's
+// current position, and only then tears down the old XIcon and its config.
+// Returns false, leaving the old icon on screen, if a step fails -- the caller
+// then falls back to a full restart, which is always safe because whatever
+// changed is already on disk.
+//
+// On success the old `oldIcon` is destroyed: callers must not touch it again.
+bool XDesktopContainer::refreshIcon(XIcon * oldIcon)
+{
+	DesktopIconConfig * oldConfig =
+	    dynamic_cast<DesktopIconConfig *>(oldIcon->getIconConfig());
+	DesktopConfig * dConfig = dynamic_cast<DesktopConfig *>(config);
+	if (!oldConfig || !dConfig)
+		return false;
+
+	int x = oldIcon->getX();
+	int y = oldIcon->getY();
+
+	DesktopIconConfig * fresh = dConfig->rebuildIconConfig(oldConfig);
+	if (!fresh)
+		return false;
+	// keep the icon exactly where it is on screen right now, whether or not
+	// anything was ever written to disk for its position
+	fresh->setPosition(x, y);
+
+	XIcon * newIcon;
+	if (fresh->getSnapShadow() && fresh->getSnapShadow())
+		newIcon = new XIconWithShadow(this, config, fresh);
+	else
+		newIcon = new XIcon(this, config, fresh);
+
+	if (!newIcon->isValid() || !newIcon->createIcon())
+		return false;
+
+	vector<AbstractIcon *>::iterator it =
+	    find(iconList.begin(), iconList.end(), oldIcon);
+	if (it != iconList.end())
+		iconList.erase(it);
+	delete oldIcon;
+	delete oldConfig; // only now: the XIcon that referenced it is gone
+
+	addIcon(newIcon);
+
+	// createIcon() only creates the windows. Positioning and mapping them is
+	// done per icon at the end of arrangeIcons() on startup, which a single
+	// replaced icon never goes through: without these three calls the new icon
+	// sat unmapped and unplaced, i.e. the renamed icon simply vanished.
+	newIcon->moveImageWindow();
+	newIcon->mapImageWindow();
+	newIcon->initMapCaptionWindow();
+
+	XFlush(display);
+	return true;
+}
+
 // Rename, per the agreed rule: for a .lnk or a .desktop it changes the
 // *shown* name (Caption: / Name=) and never the file; for a plain
 // file/folder in ~/Desktop -- which has no name other than its file name
-// -- it renames the file itself. Refreshes by restarting idesk-ng, the
-// same full Reload that already exists (see the TODO in restartIdesk's
-// neighborhood: an in-place caption refresh would be nicer, but needs
-// the icon's config re-parsed and its caption window re-measured and
-// re-centered; a restart is simple and reliable).
+// -- it renames the file itself. The screen is then refreshed by replacing
+// just that icon in place (refreshIcon); if that fails it falls back to the
+// full restart (Application::restartIdesk, the existing Reload).
 void XDesktopContainer::renameIcon(XIcon * icon)
 {
 	DesktopIconConfig * dIconConfig =
@@ -778,10 +834,13 @@ void XDesktopContainer::renameIcon(XIcon * icon)
 		ok = renamePlainFile(path, newName, newPath, error);
 		if (ok)
 		{
-			// saveState() runs as part of the restart below and records
-			// every icon's position under its in-memory path -- point it
-			// at the new path, and drop the entry for the old one.
+			// Position is keyed by file path in layout.db: carry it over to
+			// the new path and drop the old entry. The in-memory path is
+			// updated as well so that, should the in-place refresh below fail
+			// and fall back to a full restart, saveState() records this icon
+			// under its new path instead of resurrecting the old entry.
 			removeLayoutPosition(path);
+			seedLayoutPosition(newPath, icon->getX(), icon->getY());
 			dIconConfig->setIconFilename(newPath);
 		}
 	}
@@ -792,7 +851,9 @@ void XDesktopContainer::renameIcon(XIcon * icon)
 		return;
 	}
 
-	app->restartIdesk();
+	// `icon` is destroyed by a successful refresh -- not touched after this
+	if (!refreshIcon(icon))
+		app->restartIdesk();
 }
 
 void XDesktopContainer::exeCurrentAction(XIcon * icon)
@@ -940,25 +1001,37 @@ void XDesktopContainer::reloadState()
     //        program. Not way too important though.
 }
 
+// Launches `command` through /bin/sh and returns without waiting for it.
+//
+// Double fork, the standard way to start something you don't want to be
+// responsible for: the intermediate child exits at once, so the grandchild
+// that actually runs the program is adopted by init (or the session's
+// subreaper) and nobody in idesk-ng ever has to reap it. This replaces two
+// earlier designs: the original blocking waitpid() (every icon, tooltip and
+// menu froze while the launched program was open), and a SIGCHLD handler that
+// reaped *every* child -- which also steals the exit status of children other
+// libraries spawn and wait for themselves. On current Ubuntu gdk-pixbuf loads
+// each image through a glycin helper process, with a thread blocked in wait4()
+// for it; idesk-ng must never touch children it did not create.
 void XDesktopContainer::runCommand(const string & command)
 {
-    pid_t pid;
-    // fork and execute program by replacing child's process
-    pid = fork();
+    pid_t pid = fork();
     if (pid == 0) {
+        // intermediate child: only forks again and leaves (async-signal-safe
+        // calls only -- this is a copy of a multithreaded process)
+        pid_t pid2 = fork();
+        if (pid2 == 0) {
 #ifdef HAVE_STARTUP_NOTIFICATION
-	    if (sn_context != NULL)
-		     sn_launcher_context_setup_child_process (sn_context);
+            if (sn_context != NULL)
+                sn_launcher_context_setup_child_process (sn_context);
 #endif /* HAVE_STARTUP_NOTIFICATION  */
-                setsid();
-		if (execl("/bin/sh", "/bin/sh", "-c", command.c_str(), (char *)0) == -1) {
-			fprintf(stderr, "Error to execute command '%s': %s\n", command.c_str(), strerror(errno));
-			// _exit, not exit: this is a forked copy of a multithreaded
-			// process; exit() would run atexit handlers and flush stdio
-			// buffers inherited from the parent.
-			_exit(127);
-		}
-		// this line is never reached
+            setsid();
+            if (execl("/bin/sh", "/bin/sh", "-c", command.c_str(), (char *)0) == -1) {
+                fprintf(stderr, "Error to execute command '%s': %s\n", command.c_str(), strerror(errno));
+                _exit(127);
+            }
+        }
+        _exit(pid2 < 0 ? 1 : 0);
     } else if (pid < 0) {
         fprintf(stderr, "Failed to fork process to run command '%s': %s\n", command.c_str(), strerror(errno));
     } else {
@@ -977,15 +1050,3 @@ int XDesktopContainer::heightOfScreen()
     return HeightOfScreen(DefaultScreenOfDisplay(display));
 }
 
-// Launches `command` through /bin/sh and returns without waiting for it.
-//
-// Double fork, the standard way to start something you don't want to be
-// responsible for: the intermediate child exits at once, so the grandchild
-// that actually runs the program is adopted by init (or the session's
-// subreaper) and nobody in idesk-ng ever has to reap it. This replaces two
-// earlier designs: the original blocking waitpid() (every icon, tooltip and
-// menu froze while the launched program was open), and a SIGCHLD handler that
-// reaped *every* child -- which also steals the exit status of children other
-// libraries spawn and wait for themselves. On current Ubuntu gdk-pixbuf loads
-// each image through a glycin helper process, with a thread blocked in wait4()
-// for it; idesk-ng must never touch children it did not create.

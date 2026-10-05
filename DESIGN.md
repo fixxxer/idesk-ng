@@ -1157,15 +1157,47 @@ the mouse and clipboard paste. While waiting for events it wakes once a second
 to honour `quitRequested`, so an open dialog cannot block a shutdown
 (`ContextMenu`'s own modal loop still lacks this).
 
-**Refresh is a full restart.** After the edit, `Application::restartIdesk()`
--- the existing Reload -- rebuilds the desktop. Simple and reliable, at the
-cost of the whole desktop re-creating (a visible blink); a live update would
-need the icon's config re-parsed and its caption window re-measured and
-re-centered. Because `saveState()` runs first and records *every* icon's
-position under its in-memory path, a renamed plain file has its
-`DesktopIconConfig` path updated (new `setIconFilename()`) and its old
-`layout.db` entry removed beforehand -- otherwise the restart would resurrect
-an entry for the old name. Failures (name already exists, invalid name,
+**Refresh replaces just that icon, in place.** (The first version restarted
+the whole desktop with `Application::restartIdesk()`, which blinks every icon;
+on current Ubuntu it is much worse than a blink, because gdk-pixbuf loads each
+image through a glycin helper process -- over 100 `vfork`s at startup were seen
+under gdb -- and a restart relaunches all of them.) Now the per-file icon
+construction that used to live inside `DesktopConfig::scanIconDirectory()` is
+`createIconConfig()`, so startup and refresh run exactly the same code;
+`rebuildIconConfig()` re-reads one icon from its file and swaps the result into
+the same slot of the config list; and `XDesktopContainer::refreshIcon()` builds
+a new `XIcon` from it at the old icon's current position
+(`DesktopIconConfig::setPosition()`, which writes nothing to disk), shows it,
+and only *then* tears down the old `XIcon` and its config. A plain file's
+`layout.db` entry is carried to the new path (old entry removed, new one seeded
+at the same position) and its in-memory path updated.
+
+*A trap worth recording:* `XIcon::createIcon()` only creates the windows.
+Positioning and mapping them is done per icon at the end of `arrangeIcons()`
+(`moveImageWindow()`, `mapImageWindow()`, `initMapCaptionWindow()`), which one
+replaced icon never goes through. The first version of the refresh skipped
+those three calls and the renamed icon simply vanished -- unmapped, unplaced --
+while the window count stayed correct, so counting windows could not see it;
+comparing window geometry did.
+
+*Fallback:* if the file can no longer be read as an icon, or the new icon cannot
+be created, `refreshIcon()` returns false with the old icon untouched and the
+caller does the full restart, which is always safe because whatever changed is
+already on disk. Forced by renaming a plain file to `x.desktop` (no longer a
+valid icon): the restart fired, the other icons reloaded and the process stayed
+up. (That leaves an orphan `layout.db` entry for the unreadable file; harmless.)
+
+*Verification* (virtual X server): for a `.desktop`, a plain file and a `.lnk`
+the rename causes 0 restarts, the window count stays constant, the icon's image
+region is pixel-identical before and after (0 differing pixels, with the pointer
+parked in a neutral spot -- with it hovering, hover rendering alone differs),
+the window is `IsViewable`, the caption is re-measured and re-centered, a second
+rename of the already-rebuilt icon works, and a rebuilt icon can still be
+deleted. Under valgrind, four renames (every type, plus a repeat) give 0 invalid
+reads/writes/frees and no leak with a frame in this project's code. The test
+harness itself had two traps: a geometry regex that rejected negative
+coordinates (a wide caption centered under a narrow icon has a negative X), and
+screenshots taken with the pointer over one icon but not the other. Failures (name already exists, invalid name,
 symlink) are reported through the same `--show-message` popup; messages go
 through a `shellQuote()` so text containing quotes or shell metacharacters
 (a file name) cannot become part of the command.
@@ -1205,8 +1237,8 @@ the Trash and copying them back into `~/Desktop`, idesk-ng died with
 after 6882 requests (6882 known processed) with 138 events remaining.` Earlier
 in the same session the Trash icon had opened Files (Nautilus) several times.
 The desktop server itself stayed up. Also reported: after a Rename the icons
-visibly "cough" while the desktop reloads (that is the full restart described
-in the Rename section, not a bug).
+visibly "cough" while the desktop reloads (at the time that was the full
+restart; Rename now replaces only the affected icon -- see the Rename section).
 
 **Found and fixed -- `runCommand()` blocked the whole event loop.** After
 `fork()` the parent did a blocking `waitpid(pid, NULL, 0)`, in the code since
@@ -1218,13 +1250,25 @@ Nautilus PIDs in the log), so idesk-ng was frozen for as long as Files was
 open while X events piled up unread -- which fits the "138 events remaining".
 Reproduced with an icon whose `Exec=` is `sleep 20`: a right-click on another
 icon did nothing until the command ended, and then the queued click opened its
-menu. Fixed by not waiting: the child already has its own session (`setsid`)
-and is reaped by the SIGCHLD handler. The handler now loops (`SIGCHLD` is
-coalesced when children exit together, and it is now the only reaper) and
-preserves `errno`; the child's exec-failure path uses `_exit(127)` rather than
-`exit(1)`, since it is a forked copy of a multithreaded process.
-Verified: with `sleep 20` running, the menu opens (7 windows) and closes; five
-quick launches and the end of the long one leave 0 zombie children.
+menu. Fixed by not waiting. The first version of the fix left reaping to a SIGCHLD
+handler that looped over `waitpid(-1)`; that was the wrong design. A thread dump
+from the real Ubuntu 26.04 VM showed `libglycin` threads blocked in `wait4()`
+(gdk-pixbuf loads each image through a glycin helper process there), and a
+handler that reaps *every* child can steal the exit status of processes other
+libraries spawn and wait for themselves. That is an inference from the stack,
+not a failure that was seen -- but idesk-ng has no business touching children it
+did not create. So `runCommand()` now double-forks: the intermediate child exits
+at once and the parent waits only for it; the grandchild that runs the program
+is adopted by init (or the session's subreaper), so nobody in idesk-ng has to
+reap it, and **no SIGCHLD handler is installed at all**. The child's exec-failure
+path uses `_exit(127)` rather than `exit(1)`, since it is a forked copy of a
+multithreaded process. Verified (virtual X server): with `sleep 20` running the
+context menu opens (7 windows) and closes; the launched command really runs
+(marker file); 0 zombies, checked against a control showing that the sandbox's
+init does reap orphans; the process's caught-signal mask no longer includes
+SIGCHLD. Not testable there: the glycin interplay itself (that sandbox has the
+classic gdk-pixbuf loaders). Confirmed on the real VM: Nautilus open from the
+Trash icon no longer blocks idesk-ng.
 
 **Found and fixed with valgrind -- two uninitialized values in our own code.**
 `XDesktopContainer::timer` was only assigned when the background rotates, so
@@ -1261,3 +1305,9 @@ one (a small leak per click); `event.xproperty.time` is passed to
 `sn_launcher_context_initiate()` even when the event is a button press, so the
 timestamp is the wrong field of the union; and `ContextMenu`'s modal loop still
 does not honour `quitRequested` (`TextInput`'s does).
+
+**Update after the real-hardware retest.** A gdb session on the VM ran idle in
+`select()` inside `eventLoop` until it was ended with SIGTERM -- no crash was
+captured -- and the Xorg log has nothing from the server side around the
+incident. The connection loss did not recur after the fixes above, which is not
+the same as being fixed.

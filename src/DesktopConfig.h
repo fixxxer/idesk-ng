@@ -54,6 +54,15 @@ class DesktopConfig : public AbstractConfig
     CommonOptions * common;
 
     virtual void loadIcons();
+    public:
+        // Re-reads one icon from its file and swaps it into the list; the
+        // caller deletes the returned-from `old` config. NULL if unreadable.
+        DesktopIconConfig * rebuildIconConfig(DesktopIconConfig * old);
+    protected:
+        DesktopIconConfig * createIconConfig(const string & filename,
+                                              const string & displayName,
+                                              bool warnOnUnrecognized,
+                                              bool autoIconizePlainFiles);
     virtual void scanIconDirectory(const string & dir, bool warnOnUnrecognized,
                                     const string & excludeFilename,
                                     bool autoIconizePlainFiles);
