@@ -114,7 +114,10 @@ void XImlib2ToolTip::createWindow()
     
    gcv.function = GXcopy;
     
-   tooltip.gc = XCreateGC (display, root , GCFunction| GCBackground, &gcv);   
+   tooltip.gc = XCreateGC (display, root , GCFunction, &gcv);
+   // (GCBackground used to be in the mask too, but gcv.background was
+   // never set -- valgrind flagged the uninitialized value. Nothing
+   // here draws with the GC's background, so only the function is set.)   
 }
 
 void XImlib2ToolTip::createFont()

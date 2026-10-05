@@ -27,6 +27,7 @@
 #include "Install.h"
 #include "MessageBox.h"
 #include <signal.h>
+#include <cerrno>
 /*#include <sys/wait.h>*/
 
 Application::Application(int arg, char ** args) : AbstractApp(arg, args)
@@ -142,8 +143,14 @@ volatile sig_atomic_t quitRequested = 0;
 
 void signalhandler(int sig){
 	if(sig == SIGCHLD){
-	  int status;
-	  waitpid(-1, &status, WNOHANG|WUNTRACED);
+	  // Reap every child that has exited, not just one: SIGCHLD is
+	  // coalesced when several exit together, and now that runCommand()
+	  // no longer waits for its child this handler is the only reaper.
+	  // errno is saved because a handler must not disturb the code it
+	  // interrupted.
+	  int savedErrno = errno, status;
+	  while (waitpid(-1, &status, WNOHANG) > 0) { }
+	  errno = savedErrno;
 	}else if(sig == SIGTERM || sig == SIGINT){
 	  quitRequested = 1;
 	}else{

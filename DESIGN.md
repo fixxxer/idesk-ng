@@ -1196,3 +1196,68 @@ Not verified: any of this on a real keyboard and session (dead-key behavior in
 particular depends on the person's real layout), Rename of a `.desktop` that
 is a symlink in the live UI (refused in the unit tests only), and Rename with
 `SnapShadow` enabled.
+
+## A frozen desktop while a launched program runs -- and an X connection loss that is NOT explained
+
+**Report (Ubuntu VM, real Openbox session).** After recovering two files from
+the Trash and copying them back into `~/Desktop`, idesk-ng died with
+`XIO: fatal IO error 11 (Resource temporarily unavailable) on X server ":0"
+after 6882 requests (6882 known processed) with 138 events remaining.` Earlier
+in the same session the Trash icon had opened Files (Nautilus) several times.
+The desktop server itself stayed up. Also reported: after a Rename the icons
+visibly "cough" while the desktop reloads (that is the full restart described
+in the Rename section, not a bug).
+
+**Found and fixed -- `runCommand()` blocked the whole event loop.** After
+`fork()` the parent did a blocking `waitpid(pid, NULL, 0)`, in the code since
+the original 0.7.5 sources (checked with `git log -S`). Every icon, tooltip and
+menu froze for as long as the launched program stayed open; with
+`Exec=firefox` that means a dead desktop until Firefox quits. In an Openbox
+session `xdg-open` ran Nautilus in the foreground (the three different
+Nautilus PIDs in the log), so idesk-ng was frozen for as long as Files was
+open while X events piled up unread -- which fits the "138 events remaining".
+Reproduced with an icon whose `Exec=` is `sleep 20`: a right-click on another
+icon did nothing until the command ended, and then the queued click opened its
+menu. Fixed by not waiting: the child already has its own session (`setsid`)
+and is reaped by the SIGCHLD handler. The handler now loops (`SIGCHLD` is
+coalesced when children exit together, and it is now the only reaper) and
+preserves `errno`; the child's exec-failure path uses `_exit(127)` rather than
+`exit(1)`, since it is a forked copy of a multithreaded process.
+Verified: with `sleep 20` running, the menu opens (7 windows) and closes; five
+quick launches and the end of the long one leave 0 zombie children.
+
+**Found and fixed with valgrind -- two uninitialized values in our own code.**
+`XDesktopContainer::timer` was only assigned when the background rotates, so
+with the default config the loop condition `!XPending(display) && timer` read
+whatever was in that memory. If non-zero, the loop spins at 100% CPU and never
+reaches its `select()`; if zero it behaves. Same family as `spareRoot`: it
+depended on heap garbage, which is exactly the kind of thing that differs from
+one machine to the next. Now initialized to `NULL`. Separately,
+`XImlib2ToolTip` passed `GCBackground` to `XCreateGC` without ever setting
+`gcv.background` (nothing there draws with the GC's background; the flag is
+dropped). After both fixes valgrind reports no uninitialized-value error with
+a frame in this project's code.
+
+**NOT found: the cause of the connection loss.** With an xcb-based Xlib the
+`errno` in that message is stale and the error generally means the connection
+to the server was lost, so this may well not be idesk-ng's doing. What was
+tried and did *not* reproduce it: blocking idesk-ng for 20 s under a flood of
+pointer motion, in a virtual X server; valgrind across hover, the Trash
+double-click (`fork`+`exec`), two Deletes, hovering over the gaps, and
+shutdown -- 0 invalid reads, writes or frees; file descriptors holding at 4
+across three Rename-triggered restarts (so nothing leaks across `exec`). Not
+tested: a real Nautilus/GNOME stack, a real Xorg on the VM's virtual GPU, or
+drag-and-drop from Files. The freeze above removes the one concrete mechanism
+found (a long block with a growing backlog) but nothing shows it was the
+trigger. If it recurs: run `gdb -q -batch -ex "set pagination off" -ex "set
+breakpoint pending on" -ex "break exit" -ex run -ex bt -ex "thread apply all
+bt" --args ./src/idesk` (Xlib's fatal handler ends in `exit()`, so this stops
+with the stack of whatever was running), and look at the Xorg log for lines
+around the same time.
+
+**Seen but left alone** (real, unrelated to the above): a new
+`sn_launcher_context` is created on every launch without releasing the previous
+one (a small leak per click); `event.xproperty.time` is passed to
+`sn_launcher_context_initiate()` even when the event is a button press, so the
+timestamp is the wrong field of the union; and `ContextMenu`'s modal loop still
+does not honour `quitRequested` (`TextInput`'s does).

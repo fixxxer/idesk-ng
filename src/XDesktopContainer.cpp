@@ -71,7 +71,7 @@ static string resolveSelfPathForMessage()
     return string(buf);
 }
 
-XDesktopContainer::XDesktopContainer(AbstractApp * a) : DesktopContainer(a)
+XDesktopContainer::XDesktopContainer(AbstractApp * a) : DesktopContainer(a), timer(NULL)
 {
     xcontainer=this; 	
     initXWin();
@@ -953,13 +953,22 @@ void XDesktopContainer::runCommand(const string & command)
                 setsid();
 		if (execl("/bin/sh", "/bin/sh", "-c", command.c_str(), (char *)0) == -1) {
 			fprintf(stderr, "Error to execute command '%s': %s\n", command.c_str(), strerror(errno));
-			exit(1);
+			// _exit, not exit: this is a forked copy of a multithreaded
+			// process; exit() would run atexit handlers and flush stdio
+			// buffers inherited from the parent.
+			_exit(127);
 		}
 		// this line is never reached
     } else if (pid < 0) {
         fprintf(stderr, "Failed to fork process to run command '%s': %s\n", command.c_str(), strerror(errno));
     } else {
-        waitpid(pid, NULL, 0);
+        // Deliberately NOT waiting for the child. This used to be a
+        // blocking waitpid(pid, NULL, 0) -- present since the original
+        // 0.7.5 sources -- which froze every icon, tooltip and menu for
+        // as long as the launched program stayed open (Exec=firefox
+        // meant a dead desktop until Firefox quit), while X events piled
+        // up unread in the meantime. The child runs in its own session
+        // (setsid above) and is reaped by the SIGCHLD handler in App.cpp.
     }
 }
 int XDesktopContainer::widthOfScreen()
