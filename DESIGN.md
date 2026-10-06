@@ -1311,3 +1311,46 @@ does not honour `quitRequested` (`TextInput`'s does).
 captured -- and the Xorg log has nothing from the server side around the
 incident. The connection loss did not recur after the fixes above, which is not
 the same as being fixed.
+
+## Icons without a saved position no longer land on top of existing ones
+
+**Report (real VM).** After deleting icons, restoring the files from the Trash
+into `~/Desktop` and restarting, the restored icons appeared in the top-left
+corner stacked on top of icons already there.
+
+**Cause.** `arrangeIcons()` gives every icon with no position (x == 0 and
+y == 0) the next grid slot, counting 0, 1, 2... without looking at what already
+occupies the slots. Delete removes an icon's `layout.db` entry, so a restored
+file has no position -- and slots 0, 1, 2... are exactly where the first icons
+were put in the first place. Reproduced on a virtual X server: with 5 placed
+icons and 2 new files, the new ones landed at the *exact* coordinates of two
+existing icons.
+
+**Fix.** The footprint (image plus caption room) of every positioned icon is
+collected first; each un-positioned icon then takes the first slot of the first
+layer whose footprint overlaps nothing, counting the icons this same loop has
+already placed. Once the first layer is full the icon takes the next fan slot
+exactly as before (15 px shift per layer), which still overlaps the layer below
+by design -- the fan only exists for a screen with more icons than fit.
+
+**Verified** (virtual X server): `SnapOrigin` BottomRight and TopLeft, 5 placed +
+2 new: 0 overlapping pairs; an icon dragged by hand onto the next free slot is
+avoided, and the slot it vacated is reused; 60 placed + 42 new (capacity 98):
+exactly 4 overlapping pairs, which are the 4 icons past capacity; valgrind over
+a start that places restored icons: 0 invalid accesses; the in-place rename
+suite re-run with no regression.
+
+**Not done, deliberately.**
+- A file restored while idesk-ng is running still does not appear until the next
+  start or reload: nothing watches `~/Desktop`. With `createIconConfig()` and the
+  per-icon machinery built for Rename this is now realistic (an inotify
+  descriptor added to the event loop's `select()`), but it is its own feature.
+- Delete removes the layout entry, so a restored icon gets a free slot rather
+  than its old place. Keeping the entry would put it back where it was, at the
+  price of orphan entries for files that never come back.
+- Only icons without a position are moved. Two icons that were *both* placed by
+  hand on top of each other stay that way, and a caption wider than its icon is
+  not part of the footprint.
+- One run of the 60 + 42 stress test showed 0 windows for 180 s and was not
+  reproduced in three identical re-runs (its log was lost to an output filter
+  in the harness). The cause is unknown.

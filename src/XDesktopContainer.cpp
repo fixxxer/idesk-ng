@@ -244,6 +244,16 @@ void XDesktopContainer::loadIcons()
     }
 }
 
+// An icon's footprint on screen (the image plus the room its caption takes),
+// used by arrangeIcons() to keep a newly placed icon off the ones already there.
+struct IconBox { int x, y, w, h; };
+
+static bool boxesOverlap(const IconBox & a, const IconBox & b)
+{
+    return a.x < b.x + b.w && b.x < a.x + a.w &&
+           a.y < b.y + b.h && b.y < a.y + a.h;
+}
+
 void XDesktopContainer::arrangeIcons()
 {
     DesktopConfig * dConfig = dynamic_cast<DesktopConfig *>(config);
@@ -299,6 +309,24 @@ void XDesktopContainer::arrangeIcons()
     int originX = fromLeft ? 20 : widthOfScreen() - maxW - 20;
     int originY = fromTop ? 20 : heightOfScreen() - maxRowStep;
 
+    // Boxes already taken on screen: every icon that has a saved position, plus
+    // each one this loop places as it goes. An un-positioned icon -- a file
+    // restored from the Trash, a .desktop dropped into ~/Desktop -- has to land
+    // in a slot that is still free. Slots used to be handed out from 0 without
+    // looking at what already occupied them, so such an icon landed exactly on
+    // top of one that was already there.
+    vector<IconBox> occupied;
+    for(unsigned int i = 0; i < iconList.size(); i++ )
+    {
+        XIcon *p = dynamic_cast<XIcon *>(iconList[i]);
+        if( p->getX() != 0 || p->getY() != 0 )
+        {
+            IconBox b = { p->getX(), p->getY(), p->getWidth(),
+                          p->getHeight() + p->getFontHeight() + 10 };
+            occupied.push_back(b);
+        }
+    }
+
     int slot = 0;
     for(unsigned int i = 0; i < iconList.size(); i++ )
     {
@@ -306,23 +334,45 @@ void XDesktopContainer::arrangeIcons()
 
         if( iPtr->getX() == 0 && iPtr->getY() == 0 )
         {
-            int layer = slot / capacity;
-            int posInLayer = slot % capacity;
-            int col = posInLayer / rows;
-            int row = posInLayer % rows;
+            // First slot, from here on, whose box nothing else occupies. Only
+            // the first layer is searched; once it is full the icon just takes
+            // the next fan slot, exactly as before this search existed.
+            IconBox box = { 0, 0, iPtr->getWidth(),
+                            iPtr->getHeight() + iPtr->getFontHeight() + 10 };
+            for( ; ; slot++ )
+            {
+                int layer = slot / capacity;
+                int posInLayer = slot % capacity;
+                int col = posInLayer / rows;
+                int row = posInLayer % rows;
 
-            int baseX = originX + dirX * col * (maxW + 20);
-            int baseY = originY + dirY * row * maxRowStep;
+                int baseX = originX + dirX * col * (maxW + 20);
+                int baseY = originY + dirY * row * maxRowStep;
 
-            int finalX = baseX + dirX * layer * shiftStep;
-            int finalY = baseY + dirY * layer * shiftStep;
-            if (finalX < 20)
-                finalX = 20; // defensive floor for pathological screen/icon sizes
-            if (finalY < 20)
-                finalY = 20;
+                int finalX = baseX + dirX * layer * shiftStep;
+                int finalY = baseY + dirY * layer * shiftStep;
+                if (finalX < 20)
+                    finalX = 20; // defensive floor for pathological screen/icon sizes
+                if (finalY < 20)
+                    finalY = 20;
 
-            iPtr->setX(finalX + ((maxW - iPtr->getWidth())/2));
-            iPtr->setY(finalY);
+                box.x = finalX + ((maxW - iPtr->getWidth())/2);
+                box.y = finalY;
+
+                bool taken = false;
+                for( unsigned int k = 0; k < occupied.size() && !taken; k++ )
+                    taken = boxesOverlap(box, occupied[k]);
+                // Past the first layer there is no free slot left to find (the
+                // fanned-stack layers are shifted only a few pixels, so they
+                // always overlap the layer below): keep the original fan
+                // behaviour instead of searching further and further out.
+                if( !taken || slot >= capacity )
+                    break;
+            }
+
+            iPtr->setX(box.x);
+            iPtr->setY(box.y);
+            occupied.push_back(box);
 
             // This icon had no saved position (that's what X==0 && Y==0
             // means here) -- if it's a .desktop/plain-file icon (never
