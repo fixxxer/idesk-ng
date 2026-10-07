@@ -337,6 +337,30 @@ DesktopIconConfig * DesktopConfig::createIconConfig(const string & filename,
     return NULL;
 }
 
+// One file of the Desktop directory, judged by the same rules scanIconDirectory()
+// applies at startup (dotfiles, ~ backups and layout.db skipped; a plain file is
+// an icon only with Desktop.AutoIcons on). Quiet about files that aren't icons.
+DesktopIconConfig * DesktopConfig::createDesktopIconConfig(const string & path)
+{
+    size_t slash = path.find_last_of('/');
+    string name = (slash == string::npos) ? path : path.substr(slash + 1);
+    if (name.empty() || name == "layout.db" || backgroundFile(name))
+        return NULL;
+    return createIconConfig(path, name, false, autoIconizeDesktop);
+}
+
+void DesktopConfig::removeIconConfig(DesktopIconConfig * c)
+{
+    for (vector<AbstractIconConfig *>::iterator it = iconConfigList.begin();
+         it != iconConfigList.end(); ++it)
+        if (*it == c)
+        {
+            iconConfigList.erase(it);
+            break;
+        }
+    delete c; // ours to delete whether or not it was still in the list
+}
+
 // Re-reads one icon from its file, with exactly the code startup uses, and
 // swaps the result into the same slot of the config list. The old config is
 // left alive and returned to the caller to delete: the XIcon still showing it
@@ -521,8 +545,12 @@ void DesktopConfig::loadIcons()
     // path so nothing gets scanned twice.
     string xdgDesktopDir = getXdgDesktopDir();
     if (xdgDesktopDir != idesktopDir)
+    {
         scanIconDirectory(xdgDesktopDir, /* warnOnUnrecognized = */ false, "",
                            autoIconizeDesktop);
+        if (stat(xdgDesktopDir.c_str(), &dirStat) == 0 && S_ISDIR(dirStat.st_mode))
+            desktopWatchDir = xdgDesktopDir;
+    }
 }
 
 void DesktopConfig::saveLockState(bool lockState)

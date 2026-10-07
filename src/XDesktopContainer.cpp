@@ -40,6 +40,12 @@
 #include <gio/gio.h>
 #include <unistd.h>
 #include <climits>
+#include <sys/inotify.h>
+#include <sys/stat.h>
+#include <dirent.h>
+#include <ctime>
+#include <map>
+#include <set>
 
 #include <X11/keysym.h>
 #ifdef HAVE_STARTUP_NOTIFICATION
@@ -71,7 +77,7 @@ static string resolveSelfPathForMessage()
     return string(buf);
 }
 
-XDesktopContainer::XDesktopContainer(AbstractApp * a) : DesktopContainer(a), timer(NULL)
+XDesktopContainer::XDesktopContainer(AbstractApp * a) : DesktopContainer(a), timer(NULL), watchFd(-1), watchWd(-1), syncPending(false), syncFirstMs(0), syncLastMs(0)
 {
     xcontainer=this; 	
     initXWin();
@@ -86,6 +92,7 @@ void XDesktopContainer::run()
     create();
     loadIcons();
     arrangeIcons();
+    startDesktopWatch();
 
     eventLoop();
 }
@@ -103,6 +110,7 @@ void XDesktopContainer::create()
 
 void XDesktopContainer::destroy()
 {
+    stopDesktopWatch();
     
     vector<AbstractIcon *>::reverse_iterator rIt = iconList.rbegin();
     for(; rIt != iconList.rend(); rIt++)
@@ -256,6 +264,14 @@ static bool boxesOverlap(const IconBox & a, const IconBox & b)
 
 void XDesktopContainer::arrangeIcons()
 {
+    arrangeIcons(NULL);
+}
+
+// With `only` set, just that icon is shown (the others are already on screen
+// and have positions, so the placement loop leaves them alone) -- used when a
+// single new icon appears while idesk-ng is running.
+void XDesktopContainer::arrangeIcons(XIcon * only)
+{
     DesktopConfig * dConfig = dynamic_cast<DesktopConfig *>(config);
     int maxW = 0, maxRowStep = 0;
 
@@ -388,6 +404,9 @@ void XDesktopContainer::arrangeIcons()
             slot++;
         }
         
+        if( only && iPtr != only )
+            continue;
+
         iPtr->moveImageWindow();
         iPtr->mapImageWindow();
         //don't initially map caption for the hover effect
@@ -443,6 +462,8 @@ void XDesktopContainer::eventLoop()
         if (quitRequested)
             break;
 
+        pollDesktopWatch();
+
         if( !XPending( display ) && timer){
 		if(!bg->IsOneShot()){
 			timer->Update();
@@ -465,10 +486,20 @@ void XDesktopContainer::eventLoop()
 		fd_set fds;
 		FD_ZERO(&fds);
 		FD_SET(xfd, &fds);
+		int maxfd = xfd;
+		if (watchFd >= 0)
+		{
+			// the kernel wakes this select() when something happens in
+			// ~/Desktop: no polling, no timer -- idle costs nothing
+			FD_SET(watchFd, &fds);
+			if (watchFd > maxfd)
+				maxfd = watchFd;
+		}
 		struct timeval tv;
-		tv.tv_sec = 1;
-		tv.tv_usec = 0;
-		select(xfd + 1, &fds, NULL, NULL, &tv);
+		int waitMs = watchTimeoutMs(); // 1000 unless a refresh is due sooner
+		tv.tv_sec = waitMs / 1000;
+		tv.tv_usec = (waitMs % 1000) * 1000;
+		select(maxfd + 1, &fds, NULL, NULL, &tv);
 		// loop back around either way; if an event is now actually
 		// pending, the next iteration's XPending() check sends it to
 		// XNextEvent() below as normal
@@ -713,21 +744,328 @@ void XDesktopContainer::deleteIcon(XIcon * icon)
 	// no-op when there's no matching entry.
 	removeLayoutPosition(path);
 
-	// Removed from the live session immediately -- no restart needed
-	// to see it disappear. Only the XIcon (the visual/window side)
-	// is deleted here; the underlying DesktopIconConfig stays in
-	// DesktopConfig::iconConfigList and is cleaned up with everything
-	// else at normal shutdown -- harmless, and not worth the extra
-	// bookkeeping of also removing it from that list mid-session.
-	// Deleting the XIcon is also what destroys its three X windows
-	// (image, caption, tooltip) -- see ~XImlib2Image(): until it
-	// learned to destroy its own window, the image window outlived
-	// the icon as a visible, unclickable ghost.
+	// Removed from the live session immediately -- no restart needed to see it
+	// disappear. Deleting the XIcon is also what destroys its three X windows
+	// (image, caption, tooltip) -- see ~XImlib2Image(): until it learned to
+	// destroy its own window, the image window outlived the icon as a visible,
+	// unclickable ghost. Its config goes with it, the same way a refreshed icon's
+	// old config does (it used to stay in DesktopConfig's list until shutdown).
+	DesktopConfig * dConfig = dynamic_cast<DesktopConfig *>(config);
+	removeXIcon(icon);
+	if (dConfig)
+		dConfig->removeIconConfig(dIconConfig);
+}
+
+// Takes an icon off the screen and out of the list. The config it was showing
+// is the caller's to deal with.
+void XDesktopContainer::removeXIcon(XIcon * icon)
+{
 	vector<AbstractIcon *>::iterator it =
 	    find(iconList.begin(), iconList.end(), icon);
 	if (it != iconList.end())
 		iconList.erase(it);
 	delete icon;
+	XFlush(display);
+}
+
+// ---------------------------------------------------------------------------
+// Watching ~/Desktop
+//
+// Files that appear in, go away from, or are touched in the XDG Desktop
+// directory are picked up while idesk-ng runs. Only that directory: iDesk-NG's
+// own (~/.config/idesktop) is written to by idesk-ng itself all the time, and
+// changes there are rare (see DESIGN.md).
+//
+// Cost when nothing happens: zero. inotify makes the kernel wake the existing
+// select() in eventLoop() when something changes; there is no polling and no
+// timer. A burst of events (copying thirty files) is folded into one
+// synchronisation, run 400 ms after the last event.
+// ---------------------------------------------------------------------------
+
+static long long monotonicMs()
+{
+	struct timespec ts;
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+	return (long long)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+}
+
+static long long mtimeNs(const struct stat & st)
+{
+	return (long long)st.st_mtim.tv_sec * 1000000000LL + st.st_mtim.tv_nsec;
+}
+
+static bool endsWithStr(const string & s, const string & suffix)
+{
+	return s.size() >= suffix.size() &&
+	       s.compare(s.size() - suffix.size(), suffix.size(), suffix) == 0;
+}
+
+// Is `path` a file directly inside `dir` (which ends with '/')?
+static bool isDirectChildOf(const string & path, const string & dir)
+{
+	return path.size() > dir.size() && path.compare(0, dir.size(), dir) == 0 &&
+	       path.find('/', dir.size()) == string::npos;
+}
+
+void XDesktopContainer::startDesktopWatch()
+{
+	DesktopConfig * dConfig = dynamic_cast<DesktopConfig *>(config);
+	if (!dConfig || dConfig->getDesktopWatchDir().empty())
+		return;
+	watchDir = dConfig->getDesktopWatchDir();
+
+	watchFd = inotify_init1(IN_NONBLOCK | IN_CLOEXEC); // CLOEXEC: launched programs don't inherit it
+	if (watchFd < 0)
+	{
+		cerr << "Not watching " << watchDir << ": " << strerror(errno) << "\n";
+		return;
+	}
+	watchWd = inotify_add_watch(watchFd, watchDir.c_str(),
+	                            IN_CREATE | IN_DELETE | IN_MOVED_FROM | IN_MOVED_TO |
+	                            IN_CLOSE_WRITE | IN_ATTRIB);
+	if (watchWd < 0)
+	{
+		cerr << "Not watching " << watchDir << ": " << strerror(errno) << "\n";
+		close(watchFd);
+		watchFd = -1;
+		return;
+	}
+
+	// what the icons on screen were built from, so a later change can be told apart
+	for (unsigned int i = 0; i < iconList.size(); i++)
+	{
+		XIcon * icon = dynamic_cast<XIcon *>(iconList[i]);
+		DesktopIconConfig * cfg =
+		    icon ? dynamic_cast<DesktopIconConfig *>(icon->getIconConfig()) : NULL;
+		if (cfg)
+			recordMtime(cfg->getIconFilename());
+	}
+}
+
+void XDesktopContainer::stopDesktopWatch()
+{
+	if (watchFd >= 0)
+		close(watchFd); // also drops the watch
+	watchFd = watchWd = -1;
+}
+
+// Remembers when a .desktop/.lnk in the Desktop directory was last read, so a
+// later touch or edit can be recognised. Other files carry nothing worth
+// refreshing (their icon comes from the name and type, which can't change in
+// place), so they aren't tracked.
+void XDesktopContainer::recordMtime(const string & path)
+{
+	if (!isDirectChildOf(path, watchDir))
+		return;
+	if (!endsWithStr(path, ".desktop") && !endsWithStr(path, ".lnk"))
+		return;
+	struct stat st;
+	if (stat(path.c_str(), &st) == 0)
+		shownMtime[path] = mtimeNs(st);
+}
+
+// Called at the top of every pass of the event loop: one non-blocking read of
+// the inotify descriptor, and the synchronisation once things have been quiet
+// for 400 ms (or have been busy for 3 s, so a steady stream can't starve it).
+void XDesktopContainer::pollDesktopWatch()
+{
+	if (watchFd < 0)
+		return;
+
+	char buf[4096] __attribute__((aligned(__alignof__(struct inotify_event))));
+	for (;;)
+	{
+		ssize_t len = read(watchFd, buf, sizeof(buf));
+		if (len <= 0)
+			break; // EAGAIN: nothing more queued
+		for (char * p = buf; p < buf + len; )
+		{
+			struct inotify_event * ev = (struct inotify_event *)p;
+			p += sizeof(struct inotify_event) + ev->len;
+
+			bool relevant = (ev->mask & IN_Q_OVERFLOW) != 0;
+			if (ev->len > 0)
+			{
+				string name = ev->name;
+				// dotfiles and ~ backups are what file managers and editors use
+				// as scratch space while saving; the final rename is what counts
+				if (!name.empty() && name[0] != '.' && name[name.size() - 1] != '~')
+					relevant = true;
+			}
+			if (relevant)
+			{
+				long long now = monotonicMs();
+				if (!syncPending)
+					syncFirstMs = now;
+				syncPending = true;
+				syncLastMs = now;
+			}
+		}
+	}
+
+	if (syncPending)
+	{
+		long long now = monotonicMs();
+		if (now - syncLastMs >= 400 || now - syncFirstMs >= 3000)
+		{
+			syncPending = false;
+			syncDesktop();
+		}
+	}
+}
+
+// How long the event loop's select() may sleep: its usual second, or less when
+// a synchronisation is due sooner.
+int XDesktopContainer::watchTimeoutMs()
+{
+	if (watchFd < 0 || !syncPending)
+		return 1000;
+	long long now = monotonicMs();
+	long long due = syncLastMs + 400;
+	if (syncFirstMs + 3000 < due)
+		due = syncFirstMs + 3000;
+	long long wait = due - now;
+	if (wait < 1)
+		wait = 1;
+	return wait > 1000 ? 1000 : (int)wait;
+}
+
+XIcon * XDesktopContainer::createXIcon(DesktopIconConfig * cfg)
+{
+	XIcon * icon;
+	if (cfg->getSnapShadow())
+		icon = new XIconWithShadow(this, config, cfg);
+	else
+		icon = new XIcon(this, config, cfg);
+	if (!icon->isValid() || !icon->createIcon())
+		return NULL; // left alone, as loadIcons() leaves an icon that won't load
+	return icon;
+}
+
+// Brings the screen in line with the Desktop directory: icons whose file went
+// away are removed, .desktop/.lnk files that changed are re-read in place, and
+// files that are new become icons in the first free slot. Idempotent: what
+// idesk-ng itself just did (a Delete, a Rename) leaves nothing to change, so
+// the inotify events those actions cause are harmless.
+void XDesktopContainer::syncDesktop()
+{
+	DesktopConfig * dConfig = dynamic_cast<DesktopConfig *>(config);
+	if (!dConfig || watchFd < 0)
+		return;
+
+	// what is on screen from this directory
+	struct Shown { XIcon * icon; DesktopIconConfig * cfg; string path; };
+	vector<Shown> shown;
+	set<string> shownPaths;
+	for (unsigned int i = 0; i < iconList.size(); i++)
+	{
+		XIcon * icon = dynamic_cast<XIcon *>(iconList[i]);
+		DesktopIconConfig * cfg =
+		    icon ? dynamic_cast<DesktopIconConfig *>(icon->getIconConfig()) : NULL;
+		if (!cfg)
+			continue;
+		string path = cfg->getIconFilename();
+		if (!isDirectChildOf(path, watchDir))
+			continue;
+		Shown s = { icon, cfg, path };
+		shown.push_back(s);
+		shownPaths.insert(path);
+	}
+
+	// gone, or changed
+	for (unsigned int i = 0; i < shown.size(); i++)
+	{
+		struct stat st;
+		if (lstat(shown[i].path.c_str(), &st) != 0)
+		{
+			// the file is gone: icon and saved position go with it, as for Delete
+			removeXIcon(shown[i].icon);
+			dConfig->removeIconConfig(shown[i].cfg);
+			removeLayoutPosition(shown[i].path);
+			shownPaths.erase(shown[i].path);
+			shownMtime.erase(shown[i].path);
+		}
+		else if (endsWithStr(shown[i].path, ".desktop") || endsWithStr(shown[i].path, ".lnk"))
+		{
+			map<string, long long>::iterator m = shownMtime.find(shown[i].path);
+			if (m == shownMtime.end() || m->second != mtimeNs(st))
+			{
+				if (!refreshIcon(shown[i].icon))
+				{
+					// no longer readable as an icon (hidden, or broken by an
+					// edit): it would not be shown at startup either. Its saved
+					// position stays, in case a following save makes it valid.
+					removeXIcon(shown[i].icon);
+					dConfig->removeIconConfig(shown[i].cfg);
+					shownPaths.erase(shown[i].path);
+					shownMtime.erase(shown[i].path);
+				}
+			}
+		}
+	}
+
+	// new
+	vector<string> names;
+	DIR * dir = opendir(watchDir.c_str());
+	if (dir)
+	{
+		struct dirent * e;
+		while ((e = readdir(dir)) != NULL)
+			names.push_back(e->d_name);
+		closedir(dir);
+	}
+	sort(names.begin(), names.end());
+	for (unsigned int i = 0; i < names.size(); i++)
+	{
+		string path = watchDir + names[i];
+		if (shownPaths.count(path))
+			continue;
+
+		struct stat st;
+		if (lstat(path.c_str(), &st) != 0)
+			continue;
+		long long ns = mtimeNs(st);
+		map<string, long long>::iterator r = rejectedMtime.find(path);
+		if (r != rejectedMtime.end() && r->second == ns)
+			continue; // already judged and complained about, unchanged since
+
+		DesktopIconConfig * cfg = dConfig->createDesktopIconConfig(path);
+		if (!cfg)
+		{
+			rejectedMtime[path] = ns;
+			continue;
+		}
+		rejectedMtime.erase(path);
+		dConfig->adoptIconConfig(cfg);
+
+		XIcon * icon = createXIcon(cfg);
+		if (!icon)
+		{
+			rejectedMtime[path] = ns;
+			continue;
+		}
+		addIcon(icon);
+		arrangeIcons(icon); // first free slot, unless layout.db already knows this file
+		recordMtime(path);
+		shownPaths.insert(path);
+	}
+
+	// forget what no longer exists
+	for (map<string, long long>::iterator r = rejectedMtime.begin(); r != rejectedMtime.end(); )
+	{
+		struct stat st;
+		if (lstat(r->first.c_str(), &st) != 0)
+			rejectedMtime.erase(r++);
+		else
+			++r;
+	}
+	for (map<string, long long>::iterator m = shownMtime.begin(); m != shownMtime.end(); )
+	{
+		if (!shownPaths.count(m->first))
+			shownMtime.erase(m++);
+		else
+			++m;
+	}
 	XFlush(display);
 }
 

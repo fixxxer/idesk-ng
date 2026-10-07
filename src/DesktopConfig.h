@@ -53,8 +53,22 @@ class DesktopConfig : public AbstractConfig
 	
     CommonOptions * common;
 
+    // The standard XDG Desktop directory when it is scanned as a directory of
+    // its own (empty when it is the same as iDesk-NG's directory, or absent).
+    // This is the one the container watches for files appearing and going away.
+    string desktopWatchDir;
+
     virtual void loadIcons();
     public:
+        const string & getDesktopWatchDir() { return desktopWatchDir; }
+        // Config for one file of the Desktop directory, by the same rules the
+        // startup scan applies to it; NULL if the file isn't (or isn't any
+        // longer) shown as an icon. The caller hands the result back through
+        // adoptIconConfig() once it is going to use it.
+        DesktopIconConfig * createDesktopIconConfig(const string & path);
+        void adoptIconConfig(DesktopIconConfig * c) { iconConfigList.push_back(c); }
+        // Takes `c` out of the list (if it is in it) and deletes it.
+        void removeIconConfig(DesktopIconConfig * c);
         // Re-reads one icon from its file and swaps it into the list; the
         // caller deletes the returned-from `old` config. NULL if unreadable.
         DesktopIconConfig * rebuildIconConfig(DesktopIconConfig * old);

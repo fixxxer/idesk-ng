@@ -1354,3 +1354,84 @@ suite re-run with no regression.
 - One run of the 60 + 42 stress test showed 0 windows for 180 s and was not
   reproduced in three identical re-runs (its log was lost to an output filter
   in the harness). The cause is unknown.
+
+## Files that appear in or leave ~/Desktop show up without a restart
+
+**Decisions (from the owner).** Only the XDG Desktop directory is watched, not
+`~/.config/idesktop`; only additions and removals are required, plus a `touch`
+(or an edit) to re-read a `.desktop`/`.lnk`; and it must cost no CPU while
+nothing happens. A Delete does *not* keep its `layout.db` entry: a restored icon
+gets a free slot rather than its old place. Recovering a deleted icon is
+unusual, and keeping entries for files that mostly never return would only pile
+up junk.
+
+**Mechanism.** One `inotify` descriptor (`IN_CLOEXEC`, so launched programs do
+not inherit it) on the Desktop directory, added to the `select()` the event loop
+already sleeps in. There is no polling and no timer: the kernel wakes the loop
+when something changes. Events on dotfiles and `~` backups are ignored (file
+managers and editors use them as scratch space while saving; the final rename is
+what counts). Relevant events are folded: the synchronisation runs 400 ms after
+the *last* one, or 3 s after the first if events keep coming. `select()`'s
+timeout shrinks to the time remaining only while a synchronisation is due; the
+rest of the time it is the one second it already was.
+
+**`syncDesktop()` is idempotent.** It compares the directory with what is on
+screen: an icon whose file is gone is removed (and its `layout.db` entry);
+a `.desktop`/`.lnk` whose modification time differs from the one recorded when
+it was shown is re-read in place with the same `refreshIcon()` Rename uses (and
+removed if it is no longer readable as an icon -- hidden, or broken by an edit --
+keeping its saved position in case a following save fixes it); and each new file
+that startup would have shown becomes an icon in the first free slot
+(`arrangeIcons(only)`, the same search as at startup, now for one icon, unless
+`layout.db` already knows the file). Because it only compares, what idesk-ng
+itself does -- a Delete, a Rename -- leaves nothing to change and the events
+those actions cause are harmless. Files that were judged not to be icons are
+remembered with their mtime so a half-written or invalid file complains once,
+not on every synchronisation.
+
+Two bits of bookkeeping came with it: `deleteIcon()` now also releases the
+icon's `DesktopIconConfig` (it used to stay in the list until shutdown), and the
+shared `removeXIcon()` does the screen side for both.
+
+**Measured** (virtual X server, 20 icons, 30 s idle, pre-change binary against
+this one): 1 wakeup per second in both (the pre-existing one that lets the loop
+notice a shutdown request), 0-1 ticks of CPU in 30 s in both, one extra file
+descriptor. Forty files created in a tight loop appeared, all of them and
+without overlap, within about a second (19 ticks of CPU in total, almost all of
+it building the icons).
+
+**Verified** (virtual X server): `cp` and `mv` into the directory (the latter is
+what restoring from the Trash does), a plain file, `rm`, rewriting a `.desktop`
+with `printf >` and with `sed -i` (rename over the file), a bare `touch` (nothing
+visibly changes), `Hidden=true` and back (the icon returns to its old position),
+a file written in three pieces 0.8 s apart (appears complete, one error message
+for the incomplete state), a real Delete followed by `mv` from the trash (same
+window count as before, no overlap), `Desktop.AutoIcons: false` (plain files stay
+icons-less, `.desktop` files still appear), and a missing Desktop directory (no
+watch, no error). Under valgrind, with creation, edit, removal, a GUI Rename of a
+`.desktop` and of a plain file in one run: 0 invalid accesses, no leak with a
+frame in this project's code, no restarts, no duplicated icon.
+
+**Seen under valgrind, NOT caused by this work.** 8 "use of uninitialised value"
+reports with a frame in `XImlib2Caption::draw()`. Isolated with the pre-change
+binary: they appear when a caption extends past the left edge of the screen (an
+icon at x=0 with a long name) -- the background crop then falls outside the
+image -- and not with the same icon at x=300. Only the part of the caption that
+is already off-screen is affected. Left alone.
+
+**Limits, on purpose.**
+- A file *renamed in a file manager* is, for idesk-ng, one icon gone and another
+  new: it comes back in a free slot, not where it was. (Matching the two
+  `inotify` move events by cookie would fix that.)
+- `~/.config/idesktop` is not watched: idesk-ng writes there itself all the time
+  (`layout.db`, a `.lnk` after every drag), and `ideskrc` changes would be a
+  config reload, a different feature.
+- A Desktop directory created *after* idesk-ng started is not picked up until
+  the next start.
+- Once `layout.db` knows a file, an edited `X-Idesk-X`/`X-Idesk-Y` no longer moves
+  it (as at startup: `layout.db` wins).
+- `inotify` does not report changes made by other machines on network file
+  systems.
+- Two unrelated leaks, left as they were: an icon whose image fails to load is
+  not deleted (as in `loadIcons()`), and a failed `refreshIcon()` leaves its half
+  built icon behind.

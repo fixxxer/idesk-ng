@@ -26,6 +26,7 @@
 #define XDESKTOP_CONTAINER_CLASS
 
 #include <sys/wait.h>
+#include <map>
 #include <errno.h>
 #ifdef HAVE_STARTUP_NOTIFICATION
 #include <libsn/sn.h>
@@ -61,6 +62,21 @@ class XDesktopContainer : public DesktopContainer
 {
     private:
         Timer *timer;	
+        // Watching ~/Desktop for files that appear, go away or are touched.
+        int watchFd, watchWd;
+        string watchDir;
+        bool syncPending;
+        long long syncFirstMs, syncLastMs;
+        map<string, long long> shownMtime;    // .desktop/.lnk path -> mtime (ns) when shown
+        map<string, long long> rejectedMtime; // path -> mtime (ns) of a file that isn't an icon
+        void startDesktopWatch();
+        void stopDesktopWatch();
+        void pollDesktopWatch();
+        int watchTimeoutMs();
+        void syncDesktop();
+        void recordMtime(const string & path);
+        XIcon * createXIcon(DesktopIconConfig * cfg);
+        void removeXIcon(XIcon * icon);
     public:    
         Window rootWindow;
 	XImlib2Background * bg;
@@ -121,7 +137,8 @@ class XDesktopContainer : public DesktopContainer
         Window getRootWindow() { return rootWindow; }
 	
         void loadIcons();
-        void arrangeIcons();
+        void arrangeIcons();               // the base class's contract: all icons
+        void arrangeIcons(XIcon * only);   // just one (NULL: all)
 	void updateIcons();
         XIcon * findIcon(Window window);
         void addIcon( const string & file, const string & pictureFile,
