@@ -35,10 +35,13 @@ using namespace std;
  * existing Display, plain Xlib/Xft, grabs pointer and keyboard while open).
  *
  * Each field is editable or shown read-only (grey). Tab / Down and
- * Shift+Tab / Up move between the editable ones, a click on one focuses it;
- * editing is the TextInput's (LineEditor: UTF-8, accents, Home/End...).
- * Enter accepts, Escape or a click outside the dialog cancels. `footer` is
- * one line of grey information under the fields.
+ * Shift+Tab / Up move between the editable ones; a click on a text field
+ * focuses it and puts the cursor where it landed; editing is the TextInput's
+ * (LineEditor: UTF-8, accents, Home/End...). A field built with `check` true is
+ * a checkbox instead: `label` is the text beside the box, `value` is "1" or
+ * "0", Space or a click toggles it. Enter accepts, Escape or a click outside
+ * the dialog cancels. `footer` is grey information under the fields, one line
+ * per '\n'.
  *
  * Returns true if accepted, with every editable field's `value` replaced by
  * what is in the form; false if cancelled (values untouched).
@@ -48,9 +51,10 @@ struct PropField
     string label;
     string value;
     bool editable;
+    bool check;
 
-    PropField(const string & l, const string & v, bool e)
-        : label(l), value(v), editable(e) {}
+    PropField(const string & l, const string & v, bool e, bool c = false)
+        : label(l), value(v), editable(e), check(c) {}
 };
 
 bool showPropertiesDialog(Display * display, int screen, Window root,

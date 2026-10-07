@@ -55,7 +55,8 @@ XImlib2ToolTip::XImlib2ToolTip(AbstractContainer * c, AbstractIcon * iPa, Abstra
 
    captionTipPlacement = dConfig->getCaptionTipPlacement();
     //captionTipOnHover
-   captionTipOnHover = dConfig->getCaptionTipOnHover();
+   captionTipOnHover = dConfig->getCaptionTipOnHover() &&
+                       dIconConfig->isTipEnabled();
 	
     //grab the tip Text
    tipText =  dIconConfig->getCaptionTip();

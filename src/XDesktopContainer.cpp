@@ -1312,12 +1312,12 @@ void XDesktopContainer::propertiesIcon(XIcon * icon)
 	}
 
 	vector<PropField> fields;
-	int nameIdx = -1, cmdIdx = -1, iconIdx = -1;
+	int nameIdx = -1, cmdIdx = -1, iconIdx = -1, tipIdx = -1, tipOnIdx = -1;
 	string footer;
 
 	if (isLnk || isDesktop)
 	{
-		string name, cmd, img;
+		string name, cmd, img, tip, tipOn;
 		bool isArray = false, hasCmd = false;
 		if (isLnk)
 		{
@@ -1327,13 +1327,20 @@ void XDesktopContainer::propertiesIcon(XIcon * icon)
 				return;
 			}
 			hasCmd = getLnkKey(path, "Command", cmd, isArray) && (isArray || !cmd.empty());
-			{ bool imgArray; getLnkKey(path, "Icon", img, imgArray); }
+			{
+				bool a;
+				getLnkKey(path, "Icon", img, a);
+				getLnkKey(path, "ToolTip.Caption", tip, a);
+				getLnkKey(path, "ToolTip.Enabled", tipOn, a);
+			}
 		}
 		else
 		{
 			getDesktopKey(path, "Name", name);
 			hasCmd = getDesktopKey(path, "Exec", cmd);
 			getDesktopKey(path, "Icon", img);
+			getDesktopKey(path, "Comment", tip);
+			getDesktopKey(path, "X-Idesk-Tooltip", tipOn);
 		}
 		if (name.empty())
 			name = dIconConfig->getCaption(); // a localized or defaulted name
@@ -1351,7 +1358,19 @@ void XDesktopContainer::propertiesIcon(XIcon * icon)
 		}
 		iconIdx = fields.size();
 		fields.push_back(PropField("Icon", img, true));
+		tipIdx = fields.size();
+		fields.push_back(PropField("Tooltip", tip, true));
+		// a tooltip is shown unless this icon says "false" (an absent key
+		// leaves it to the global setting of ideskrc)
+		tipOnIdx = fields.size();
+		fields.push_back(PropField("Show tooltip when the pointer is over the icon",
+		                           getUpper(tipOn) == "FALSE" ? "0" : "1", true, true));
 		footer = path;
+		DesktopConfig * dc = dynamic_cast<DesktopConfig *>(config);
+		if (dc && !dc->getCaptionTipOnHover())
+			footer += "\nTooltips are off for all icons (ToolTip.CaptionOnHover in ideskrc).";
+		else
+			footer += "\nEmpty tooltip text shows the name.";
 	}
 	else
 	{
@@ -1372,6 +1391,10 @@ void XDesktopContainer::propertiesIcon(XIcon * icon)
 	string newName = cleanName(fields[nameIdx].value);
 	string newCmd = cmdIdx >= 0 ? trimmed(fields[cmdIdx].value) : "";
 	string newImg = iconIdx >= 0 ? trimmed(fields[iconIdx].value) : "";
+	string newTip = tipIdx >= 0 ? trimmed(fields[tipIdx].value) : "";
+	string newTipOn = tipOnIdx >= 0 ? fields[tipOnIdx].value : "";
+	string oldTip = tipIdx >= 0 ? original[tipIdx].value : "";
+	string oldTipOn = tipOnIdx >= 0 ? original[tipOnIdx].value : "";
 	string oldName = original[nameIdx].value;
 	string oldCmd = cmdIdx >= 0 ? original[cmdIdx].value : "";
 	string oldImg = iconIdx >= 0 ? original[iconIdx].value : "";
@@ -1379,7 +1402,9 @@ void XDesktopContainer::propertiesIcon(XIcon * icon)
 	bool nameChanged = newName != trimmed(oldName);
 	bool cmdChanged = cmdIdx >= 0 && fields[cmdIdx].editable && newCmd != trimmed(oldCmd);
 	bool imgChanged = iconIdx >= 0 && newImg != trimmed(oldImg);
-	if (!nameChanged && !cmdChanged && !imgChanged)
+	bool tipChanged = tipIdx >= 0 && newTip != trimmed(oldTip);
+	bool tipOnChanged = tipOnIdx >= 0 && newTipOn != oldTipOn;
+	if (!nameChanged && !cmdChanged && !imgChanged && !tipChanged && !tipOnChanged)
 		return;
 
 	if (newName.empty())
@@ -1409,20 +1434,26 @@ void XDesktopContainer::propertiesIcon(XIcon * icon)
 		// then won't load, can put the file back as it was
 		struct Undo { string key; string value; bool existed; };
 		vector<Undo> done;
-		for (int pass = 0; pass < 3 && ok; pass++)
+		struct Edit { string key, value, before; bool changed; };
+		vector<Edit> edits;
+		Edit e1 = { isLnk ? "Caption" : "Name", newName, oldName, nameChanged };
+		Edit e2 = { isLnk ? "Command" : "Exec", newCmd, oldCmd, cmdChanged };
+		Edit e3 = { "Icon", newImg, oldImg, imgChanged };
+		Edit e4 = { isLnk ? "ToolTip.Caption" : "Comment", newTip, oldTip, tipChanged };
+		Edit e5 = { isLnk ? "ToolTip.Enabled" : "X-Idesk-Tooltip",
+		            newTipOn == "1" ? "true" : "false",
+		            oldTipOn == "1" ? "true" : "false", tipOnChanged };
+		edits.push_back(e1); edits.push_back(e2); edits.push_back(e3);
+		edits.push_back(e4); edits.push_back(e5);
+		for (size_t i = 0; i < edits.size() && ok; i++)
 		{
-			string key, value, before;
-			bool changed;
-			if (pass == 0) { key = isLnk ? "Caption" : "Name"; value = newName; before = oldName; changed = nameChanged; }
-			else if (pass == 1) { key = isLnk ? "Command" : "Exec"; value = newCmd; before = oldCmd; changed = cmdChanged; }
-			else { key = "Icon"; value = newImg; before = oldImg; changed = imgChanged; }
-			if (!changed)
+			if (!edits[i].changed)
 				continue;
-			ok = isLnk ? setLnkKey(path, key, value, error)
-			           : setDesktopKey(path, key, value, error);
+			ok = isLnk ? setLnkKey(path, edits[i].key, edits[i].value, error)
+			           : setDesktopKey(path, edits[i].key, edits[i].value, error);
 			if (ok)
 			{
-				Undo u = { key, before, true };
+				Undo u = { edits[i].key, edits[i].before, true };
 				done.push_back(u);
 			}
 		}

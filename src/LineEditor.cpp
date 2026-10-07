@@ -283,3 +283,40 @@ bool LineEditor::handleKey(XKeyEvent * kev)
     }
     return true;
 }
+
+static int editorTextWidth(Display * d, XftFont * f, const string & s)
+{
+    if (s.empty())
+        return 0;
+    XGlyphInfo e;
+    XftTextExtentsUtf8(d, f, (const XftChar8 *)s.c_str(), s.length(), &e);
+    return e.xOff;
+}
+
+int LineEditor::scrollFor(Display * d, XftFont * f, int visibleW) const
+{
+    int cursorPx = editorTextWidth(d, f, text.substr(0, cursor));
+    return cursorPx > visibleW ? cursorPx - visibleW : 0;
+}
+
+void LineEditor::placeCursorAt(Display * d, XftFont * f, int px)
+{
+    selectAll = false;
+    pendingDead = 0;
+    size_t best = 0;
+    int bestDist = px < 0 ? -px : px; // boundary 0 is at x = 0
+    size_t pos = 0;
+    while (pos < text.size())
+    {
+        pos = nextCharEnd(text, pos);
+        int dist = editorTextWidth(d, f, text.substr(0, pos)) - px;
+        if (dist < 0)
+            dist = -dist;
+        if (dist < bestDist)
+        {
+            bestDist = dist;
+            best = pos;
+        }
+    }
+    cursor = best;
+}

@@ -25,6 +25,7 @@
 #define LINE_EDITOR_CLASS
 
 #include <X11/Xlib.h>
+#include <X11/Xft/Xft.h>
 #include <string>
 using namespace std;
 
@@ -58,6 +59,15 @@ class LineEditor
         // changed (so the caller redraws), false if the key did nothing
         // (a lone Shift, say).
         bool handleKey(XKeyEvent * ev);
+
+        // Horizontal scroll (pixels) the drawing uses so the cursor stays
+        // inside a field whose visible text area is `visibleW` wide.
+        int scrollFor(Display * d, XftFont * f, int visibleW) const;
+
+        // Puts the cursor at the character boundary nearest to `px`, measured
+        // from where the text starts (scroll already taken into account).
+        // Clears the selection.
+        void placeCursorAt(Display * d, XftFont * f, int px);
 };
 
 #endif

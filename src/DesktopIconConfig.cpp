@@ -32,6 +32,7 @@ DesktopIconConfig::DesktopIconConfig(const string & fName, Table &table, CommonO
     origin = ORIGIN_LNK; // safe default; scanIconDirectory() sets this
                          // explicitly for every non-.lnk construction site
     protectedFromDelete = false;
+    tipEnabled = true;
     
     common = new CommonOptions();
     
@@ -67,6 +68,10 @@ void DesktopIconConfig::setIconOptions(Table table)
     height = atoi(table.Query("Height").c_str());
 
     protectedFromDelete = (table.Query("X-Idesk-Protected") == "true");
+    // "ToolTip.Enabled: false" (a .lnk; X-Idesk-Tooltip=false in a .desktop)
+    // turns this icon's tooltip off; anything else leaves it to the global
+    // ToolTip.CaptionOnHover of ideskrc
+    tipEnabled = (getUpper(table.Query("ToolTip.Enabled")) != "FALSE");
 
     if (table.ArrayExists("Command"))
         commandArray = table.QueryArray("Command");

@@ -113,6 +113,7 @@ class DesktopIconConfig : public AbstractIconConfig
         int width, height;
         IconOrigin origin;
         bool protectedFromDelete;
+        bool tipEnabled;       // per icon: false suppresses its tooltip
 
     public:
 	DesktopIconConfig(const string & fName, Table &table, CommonOptions * parentData);
@@ -129,6 +130,7 @@ class DesktopIconConfig : public AbstractIconConfig
         // --install-trash-icon, the first icon to set this) -- the
         // context menu's Delete action checks this and refuses.
         virtual bool isProtected() { return protectedFromDelete; }
+        virtual bool isTipEnabled() { return tipEnabled; }
 
         // Used after a plain file is renamed from the context menu, so
         // the restart's saveState() records its position under the new

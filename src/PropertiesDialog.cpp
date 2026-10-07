@@ -56,7 +56,9 @@ struct Form
     XftDraw * draw;
     XftFont * font;
     XftColor black, gray, white, selection, hintColor, panel, accent;
-    string title, footer, hint;
+    string title, hint;
+    vector<string> footer;      // one grey line each
+    vector<string> checks;      // working value of each checkbox ("1"/"0")
     vector<PropField> * fields;
     vector<LineEditor> ed;
     int focus;
@@ -83,6 +85,22 @@ static void drawForm(Form & f)
         const LineEditor & e = f.ed[i];
         int top = rowTop(f, i);
         bool focused = ((int)i == f.focus);
+
+        if (pf.check)
+        {
+            // checkbox: square at the field column, its text to the right
+            int s = lineH + 2;
+            int sy = top + (f.rowH - s) / 2;
+            XftDrawRect(f.draw, focused ? &f.accent : &f.gray, f.boxX, sy, s, s);
+            XftDrawRect(f.draw, &f.white, f.boxX + 1, sy + 1, s - 2, s - 2);
+            if (f.checks[i] == "1")
+                XftDrawRect(f.draw, &f.accent, f.boxX + 4, sy + 4, s - 8, s - 8);
+            XftDrawStringUtf8(f.draw, &f.black, f.font, f.boxX + s + 8,
+                               top + (f.rowH - lineH) / 2 + ascent,
+                               (const XftChar8 *)pf.label.c_str(),
+                               pf.label.length());
+            continue;
+        }
 
         XftDrawStringUtf8(f.draw, pf.editable ? &f.black : &f.hintColor, f.font,
                            PAD, top + (f.rowH - lineH) / 2 + ascent,
@@ -119,7 +137,7 @@ static void drawForm(Form & f)
     }
 
     int y = rowTop(f, f.fields->size());
-    if (!f.footer.empty())
+    for (size_t i = 0; i < f.footer.size(); i++)
     {
         XRectangle clip;
         clip.x = PAD;
@@ -128,9 +146,10 @@ static void drawForm(Form & f)
         clip.height = lineH + 4;
         XftDrawSetClipRectangles(f.draw, 0, 0, &clip, 1);
         XftDrawStringUtf8(f.draw, &f.hintColor, f.font, PAD, y + ascent,
-                           (const XftChar8 *)f.footer.c_str(), f.footer.length());
+                           (const XftChar8 *)f.footer[i].c_str(),
+                           f.footer[i].length());
         XftDrawSetClip(f.draw, NULL);
-        y += lineH + GAP;
+        y += lineH + (i + 1 == f.footer.size() ? GAP : 2);
     }
     XftDrawStringUtf8(f.draw, &f.hintColor, f.font, PAD, y + ascent,
                        (const XftChar8 *)f.hint.c_str(), f.hint.length());
@@ -198,21 +217,31 @@ bool showPropertiesDialog(Display * display, int screen, Window root,
     f.font = font;
     f.fields = &fields;
     f.title = title;
-    f.footer = footer;
+    {
+        // footer: one grey line per '\n'
+        string rest = footer;
+        while (!rest.empty())
+        {
+            size_t nl = rest.find('\n');
+            f.footer.push_back(rest.substr(0, nl));
+            rest = (nl == string::npos) ? "" : rest.substr(nl + 1);
+        }
+    }
     f.hint = "Tab: next field     Enter: accept     Esc: cancel";
 
     int lineH = font->ascent + font->descent;
     f.rowH = lineH + 10;
     f.labelW = 0;
     for (size_t i = 0; i < fields.size(); i++)
-        f.labelW = max(f.labelW, textWidth(display, font, fields[i].label));
+        if (!fields[i].check) // a checkbox's text sits beside its box
+            f.labelW = max(f.labelW, textWidth(display, font, fields[i].label));
     f.boxX = PAD + f.labelW + 12;
     f.boxW = WIDTH - PAD - f.boxX;
     f.firstY = PAD + lineH + 10;
 
     int height = rowTop(f, fields.size());
-    if (!footer.empty())
-        height += lineH + GAP;
+    if (!f.footer.empty())
+        height += (int)f.footer.size() * (lineH + 2) + GAP - 2;
     height += lineH + PAD;
 
     int winX = (DisplayWidth(display, screen) - WIDTH) / 2;
@@ -251,8 +280,10 @@ bool showPropertiesDialog(Display * display, int screen, Window root,
     XftColorAllocValue(display, visual, cmap, &c, &f.accent);
 
     f.ed.resize(fields.size());
+    f.checks.resize(fields.size());
     for (size_t i = 0; i < fields.size(); i++)
     {
+        f.checks[i] = fields[i].value;
         f.ed[i].set(fields[i].value);
         f.ed[i].maxBytes = 1000;
         f.ed[i].selectAll = false;
@@ -299,12 +330,24 @@ bool showPropertiesDialog(Display * display, int screen, Window root,
                     if (fields[i].editable && x >= f.boxX && x < f.boxX + f.boxW &&
                         y >= rowTop(f, i) && y < rowTop(f, i) + f.rowH)
                     {
-                        if ((int)i != f.focus)
+                        bool wasFocused = ((int)i == f.focus);
+                        if (!wasFocused)
                         {
                             f.ed[f.focus].selectAll = false;
                             setFocus(f, (int)i);
-                            drawForm(f);
                         }
+                        if (fields[i].check)
+                            f.checks[i] = (f.checks[i] == "1") ? "0" : "1";
+                        else
+                        {
+                            // cursor to the nearest character boundary; a field
+                            // that was not focused is drawn unscrolled
+                            int scroll = wasFocused
+                                ? f.ed[i].scrollFor(display, font, f.boxW - 12) : 0;
+                            f.ed[i].placeCursorAt(display, font,
+                                                  x - (f.boxX + 6 - scroll));
+                        }
+                        drawForm(f);
                         break;
                     }
             }
@@ -330,6 +373,14 @@ bool showPropertiesDialog(Display * display, int screen, Window root,
                 setFocus(f, stepFocus(f, f.focus, dir));
                 drawForm(f);
             }
+            else if (fields[f.focus].check)
+            {
+                if (ks == XK_space)
+                {
+                    f.checks[f.focus] = (f.checks[f.focus] == "1") ? "0" : "1";
+                    drawForm(f);
+                }
+            }
             else if (f.ed[f.focus].handleKey(&ev.xkey))
                 drawForm(f);
         }
@@ -353,6 +404,6 @@ bool showPropertiesDialog(Display * display, int screen, Window root,
     if (accepted)
         for (size_t i = 0; i < fields.size(); i++)
             if (fields[i].editable)
-                fields[i].value = f.ed[i].text;
+                fields[i].value = fields[i].check ? f.checks[i] : f.ed[i].text;
     return accepted;
 }

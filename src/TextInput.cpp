@@ -228,6 +228,18 @@ bool showTextInput(Display * display, int screen, Window root,
             if (ev.xbutton.x < 0 || ev.xbutton.x >= WIDTH ||
                 ev.xbutton.y < 0 || ev.xbutton.y >= height)
                 done = true;
+            else if (ev.xbutton.x >= ui.fieldX &&
+                     ev.xbutton.x < ui.fieldX + ui.fieldW &&
+                     ev.xbutton.y >= ui.fieldY &&
+                     ev.xbutton.y < ui.fieldY + ui.fieldH)
+            {
+                // click in the field: cursor goes to the nearest character
+                // boundary (same scroll as drawUi uses)
+                int scroll = ed.scrollFor(display, font, ui.fieldW - 12);
+                ed.placeCursorAt(display, font,
+                                 ev.xbutton.x - (ui.fieldX + 6 - scroll));
+                drawUi(ui, ed.text, ed.cursor, ed.selectAll);
+            }
         }
         else if (ev.type == KeyPress)
         {

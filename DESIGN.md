@@ -1485,5 +1485,30 @@ carries its saved position over; Rename after the `LineEditor` refactor.
 `tests/IconEditTest.cpp` covers the new getters/setters (raw Exec, key only in
 `[Desktop Entry]`, absent key added, `.lnk` list flagged, symlink refused).
 
-**Not done:** editing the tooltip/comment, or the icon's other `.lnk` options;
-choosing an icon with a file picker; mouse placement of the text cursor.
+**Not done:** the icon's other `.lnk` options, and choosing an icon with a file
+picker (the Icon field takes a path or a theme name typed by hand).
+
+### Properties, second round: tooltip text, a per-icon tooltip switch, mouse cursor
+
+- **Tooltip text** is a fourth field: `ToolTip.Caption:` in a `.lnk`, `Comment=` in
+  a `.desktop` (the same key every launcher uses for its description). An empty
+  text makes the tooltip show the icon's name -- that is how `XImlib2ToolTip` always
+  behaved -- and the footer says so.
+- **Tooltips were only switchable globally** (`ToolTip.CaptionOnHover` in
+  `ideskrc`). The new checkbox "Show tooltip when the pointer is over the icon" is
+  *per icon*: unchecked writes `ToolTip.Enabled: false` (`.lnk`) or
+  `X-Idesk-Tooltip=false` (`.desktop`), and `XImlib2ToolTip` then never shows it.
+  An absent key means "as the global setting says", so existing files are
+  unaffected. The per-icon switch can only turn a tooltip *off*: if the global
+  switch is off nothing shows, and the footer says "Tooltips are off for all icons
+  (ToolTip.CaptionOnHover in ideskrc)" instead of leaving the person wondering.
+  Plain files and folders have no place to store either, so they get neither field.
+- **Checkbox in the form:** `PropField(label, value, editable, check)`; Space or a
+  click toggles it, Tab reaches it, the text beside the box is its label.
+- **Mouse in text fields**, in Properties and in Rename: a click puts the cursor on
+  the nearest character boundary (`LineEditor::placeCursorAt`, using the same
+  scroll as the drawing, so it is right in a long, scrolled value too).
+  Selecting with the mouse (dragging) is still not supported.
+- Verified in Xvfb: tooltip text edited and shown on hover, switched off (nothing
+  shown), switched on again; the `.lnk` variant; clicks at the start, middle and
+  end of a field in both dialogs.

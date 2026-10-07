@@ -109,7 +109,7 @@ FreeDesktopIcon::FreeDesktopIcon(const string & filename) : Table()
     bool sawDesktopEntryGroup = false;
 
     string type, name, comment, exec, tryExec, url, icon;
-    string hidden, noDisplay, xIdeskWidth, xIdeskHeight, xIdeskX, xIdeskY, xIdeskProtected;
+    string hidden, noDisplay, xIdeskWidth, xIdeskHeight, xIdeskX, xIdeskY, xIdeskProtected, xIdeskTooltip;
 
     string line;
     while (getline(file, line))
@@ -166,6 +166,8 @@ FreeDesktopIcon::FreeDesktopIcon(const string & filename) : Table()
             xIdeskY = value;
         else if (key == "X-Idesk-Protected")
             xIdeskProtected = value;
+        else if (key == "X-Idesk-Tooltip")
+            xIdeskTooltip = value;
         else if (key == "X-Idesk-Width")
             xIdeskWidth = value;
         else if (key == "X-Idesk-Height")
@@ -221,6 +223,8 @@ FreeDesktopIcon::FreeDesktopIcon(const string & filename) : Table()
 
     Set("Caption", name);
     Set("ToolTip.Caption", comment);
+    if (!xIdeskTooltip.empty())
+        Set("ToolTip.Enabled", xIdeskTooltip);
     Set("Command", command);
     Set("Icon", resolveIconPath(icon));
 
