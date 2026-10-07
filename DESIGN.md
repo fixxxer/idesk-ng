@@ -1496,8 +1496,12 @@ picker (the Icon field takes a path or a theme name typed by hand).
   behaved -- and the footer says so.
 - **Tooltips were only switchable globally** (`ToolTip.CaptionOnHover` in
   `ideskrc`). The new checkbox "Show tooltip when the pointer is over the icon" is
-  *per icon*: unchecked writes `ToolTip.Enabled: false` (`.lnk`) or
-  `X-Idesk-Tooltip=false` (`.desktop`), and `XImlib2ToolTip` then never shows it.
+  *per icon*: unchecked writes `X-Idesk-Tooltip-Enabled: false` (`.lnk`) or
+  `X-Idesk-Tooltip-Enabled=false` (`.desktop`) -- one name for both; the `X-`
+  prefix is required of vendor keys in a `.desktop`, and a dot is not allowed in
+  its key names, hence the hyphen. (The first version wrote `ToolTip.Enabled` and
+  `X-Idesk-Tooltip`; those are still read when the new key is absent.)
+  `XImlib2ToolTip` then never shows it.
   An absent key means "as the global setting says", so existing files are
   unaffected. The per-icon switch can only turn a tooltip *off*: if the global
   switch is off nothing shows, and the footer says "Tooltips are off for all icons

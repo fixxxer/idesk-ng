@@ -69,10 +69,17 @@ void DesktopIconConfig::setIconOptions(Table table)
     height = atoi(table.Query("Height").c_str());
 
     protectedFromDelete = (table.Query("X-Idesk-Protected") == "true");
-    // "ToolTip.Enabled: false" (a .lnk; X-Idesk-Tooltip=false in a .desktop)
+    // "X-Idesk-Tooltip-Enabled: false" (same key in a .lnk and a .desktop)
     // turns this icon's tooltip off; anything else leaves it to the global
     // ToolTip.CaptionOnHover of ideskrc
-    tipEnabled = (getUpper(table.Query("ToolTip.Enabled")) != "FALSE");
+    // (the first version wrote ToolTip.Enabled in a .lnk and X-Idesk-Tooltip in
+    // a .desktop; they are still read when the new key is absent)
+    {
+        string v = table.Query("X-Idesk-Tooltip-Enabled");
+        if (v.empty())
+            v = table.Query("ToolTip.Enabled");
+        tipEnabled = (getUpper(v) != "FALSE");
+    }
     // "Draggable: false" (a .lnk) pins this icon; for .desktop files and plain
     // files the pin lives in layout.db and is applied by DesktopConfig
     draggable = (getUpper(table.Query("Draggable")) != "FALSE");

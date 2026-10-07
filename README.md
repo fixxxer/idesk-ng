@@ -137,7 +137,7 @@ end
 
 - Per icon, set from the Properties dialog (or by hand):
   - **Not draggable:** `Draggable: false`. In a .lnk it goes in the file itself; for a .desktop file or a plain file/folder it goes, as the very same line, in that icon's table of `layout.db`. An icon can be dragged only if neither "Locked" nor its own `Draggable: false` says otherwise.
-  - **Tooltip off:** `ToolTip.Enabled: false` in a .lnk, `X-Idesk-Tooltip=false` in a .desktop (a .desktop file only allows vendor keys that start with `X-`). The tooltip text is `ToolTip.Caption:` in a .lnk and `Comment=` in a .desktop.
+  - **Tooltip off:** `X-Idesk-Tooltip-Enabled: false` in a .lnk, `X-Idesk-Tooltip-Enabled=false` in a .desktop -- the same key and value in both (the `X-` prefix is what a .desktop file requires of vendor keys, and a dot is not allowed in its key names). The tooltip text is `ToolTip.Caption:` in a .lnk and `Comment=` in a .desktop.
 
 - "Transparency" is between 0 (no glow effect) and 255 (invisible without a mouseover).
 

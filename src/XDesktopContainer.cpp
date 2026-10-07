@@ -1340,7 +1340,9 @@ void XDesktopContainer::propertiesIcon(XIcon * icon)
 				bool a;
 				getLnkKey(path, "Icon", img, a);
 				getLnkKey(path, "ToolTip.Caption", tip, a);
-				getLnkKey(path, "ToolTip.Enabled", tipOn, a);
+				getLnkKey(path, "X-Idesk-Tooltip-Enabled", tipOn, a);
+				if (tipOn.empty())
+					getLnkKey(path, "ToolTip.Enabled", tipOn, a); // first version
 			}
 		}
 		else
@@ -1349,7 +1351,9 @@ void XDesktopContainer::propertiesIcon(XIcon * icon)
 			hasCmd = getDesktopKey(path, "Exec", cmd);
 			getDesktopKey(path, "Icon", img);
 			getDesktopKey(path, "Comment", tip);
-			getDesktopKey(path, "X-Idesk-Tooltip", tipOn);
+			getDesktopKey(path, "X-Idesk-Tooltip-Enabled", tipOn);
+			if (tipOn.empty())
+				getDesktopKey(path, "X-Idesk-Tooltip", tipOn); // first version
 		}
 		if (name.empty())
 			name = dIconConfig->getCaption(); // a localized or defaulted name
@@ -1484,7 +1488,7 @@ void XDesktopContainer::propertiesIcon(XIcon * icon)
 	Edit e2 = { isLnk ? "Command" : "Exec", newCmd, oldCmd, cmdChanged };
 	Edit e3 = { "Icon", newImg, oldImg, imgChanged };
 	Edit e4 = { isLnk ? "ToolTip.Caption" : "Comment", newTip, oldTip, tipChanged };
-	Edit e5 = { isLnk ? "ToolTip.Enabled" : "X-Idesk-Tooltip",
+	Edit e5 = { "X-Idesk-Tooltip-Enabled",
 	            newTipOn == "1" ? "true" : "false",
 	            oldTipOn == "1" ? "true" : "false", tipOnChanged };
 	// a .lnk keeps its pin in itself; a .desktop's lives in layout.db (below)

@@ -141,10 +141,10 @@ int main()
     CHECK(!ok && !err.empty() && !has(slurp("/tmp/ietest/g.desktop"), "Name=X"), "key: symlink refused, target untouched");
 
     // 12. per-icon tooltip keys, as Properties writes them
-    ok = setDesktopKey("/tmp/ietest/g.desktop", "X-Idesk-Tooltip", "false", err);
-    CHECK(ok && getDesktopKey("/tmp/ietest/g.desktop", "X-Idesk-Tooltip", v) && v == "false", "tooltip: .desktop switch written");
-    ok = setLnkKey("/tmp/ietest/k.lnk", "ToolTip.Enabled", "false", err);
-    CHECK(ok && getLnkKey("/tmp/ietest/k.lnk", "ToolTip.Enabled", v, isArr) && v == "false", "tooltip: .lnk switch written");
+    ok = setDesktopKey("/tmp/ietest/g.desktop", "X-Idesk-Tooltip-Enabled", "false", err);
+    CHECK(ok && getDesktopKey("/tmp/ietest/g.desktop", "X-Idesk-Tooltip-Enabled", v) && v == "false", "tooltip: .desktop switch written");
+    ok = setLnkKey("/tmp/ietest/k.lnk", "X-Idesk-Tooltip-Enabled", "false", err);
+    CHECK(ok && getLnkKey("/tmp/ietest/k.lnk", "X-Idesk-Tooltip-Enabled", v, isArr) && v == "false", "tooltip: .lnk switch written (same key as .desktop)");
     ok = setLnkKey("/tmp/ietest/k.lnk", "ToolTip.Caption", "Un tip", err);
     c = slurp("/tmp/ietest/k.lnk");
     CHECK(ok && has(c, "ToolTip.Caption: Un tip") && has(c, "Caption: C"), "tooltip: .lnk text written, caption intact");
