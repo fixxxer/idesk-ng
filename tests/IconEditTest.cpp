@@ -116,6 +116,30 @@ int main()
     ok = renamePlainFile("/tmp/ietest/carpeta", "carpeta2", np, err);
     CHECK(ok && exists("/tmp/ietest/carpeta2") && !exists("/tmp/ietest/carpeta"), "file: folders rename too");
 
+    // 11. generic keys, as used by Properties
+    put("/tmp/ietest/g.desktop",
+        "[Desktop Entry]\nType=Application\nName=G\nExec=foo %U\nIcon=old\n"
+        "\n[Desktop Action x]\nExec=bar\nIcon=other\n");
+    string v;
+    CHECK(getDesktopKey("/tmp/ietest/g.desktop", "Exec", v) && v == "foo %U", "key: Exec read raw, field codes kept");
+    CHECK(getDesktopKey("/tmp/ietest/g.desktop", "Icon", v) && v == "old", "key: Icon read from [Desktop Entry] only");
+    CHECK(!getDesktopKey("/tmp/ietest/g.desktop", "Comment", v) && v.empty(), "key: missing key reported");
+    ok = setDesktopKey("/tmp/ietest/g.desktop", "Exec", "baz --x %F", err);
+    c = slurp("/tmp/ietest/g.desktop");
+    CHECK(ok && has(c, "\nExec=baz --x %F\n") && has(c, "Exec=bar") && has(c, "Icon=other"), "key: Exec replaced, other group untouched");
+    ok = setDesktopKey("/tmp/ietest/g.desktop", "Comment", "hi", err);
+    CHECK(ok && getDesktopKey("/tmp/ietest/g.desktop", "Comment", v) && v == "hi", "key: absent key added");
+    put("/tmp/ietest/k.lnk", "table Icon\n  Caption: C\n  Command: true\n  Icon: /a.png\nend\n");
+    bool isArr = true;
+    CHECK(getLnkKey("/tmp/ietest/k.lnk", "Command", v, isArr) && v == "true" && !isArr, "lnk key: Command read");
+    ok = setLnkKey("/tmp/ietest/k.lnk", "Icon", "/b.png", err);
+    CHECK(ok && getLnkKey("/tmp/ietest/k.lnk", "Icon", v, isArr) && v == "/b.png", "lnk key: Icon replaced");
+    put("/tmp/ietest/m.lnk", "table Icon\n  Caption: M\n  Command[0]: a\n  Command[1]: b\nend\n");
+    CHECK(getLnkKey("/tmp/ietest/m.lnk", "Command", v, isArr) && isArr && v == "a", "lnk key: command list flagged as array");
+    system("ln -s /tmp/ietest/g.desktop /tmp/ietest/gl.desktop");
+    ok = setDesktopKey("/tmp/ietest/gl.desktop", "Name", "X", err);
+    CHECK(!ok && !err.empty() && !has(slurp("/tmp/ietest/g.desktop"), "Name=X"), "key: symlink refused, target untouched");
+
     cout << (fails == 0 ? "ALL PASSED" : "SOME FAILED") << " (" << fails << " failures)\n";
     return fails;
 }

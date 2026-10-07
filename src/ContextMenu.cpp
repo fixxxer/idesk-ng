@@ -31,28 +31,43 @@ using namespace std;
 static const int ITEM_HEIGHT = 26;
 static const int PADDING_X = 14;
 static const int PADDING_Y = 6;
+static const int FRAME = 1;
 
+struct MenuColors
+{
+    XftColor text, selectedText, background, border, highlight;
+};
+
+// Openbox-like: light panel inside a thin darker frame; the row under the
+// pointer (or the keyboard cursor) is filled with an accent colour and its
+// text turns white, so it is always obvious which item a click will pick.
 static void drawMenu(Display * display, Window win, XftDraw * draw,
-                      XftFont * font, const XftColor & textColor,
-                      const XftColor & highlightColor,
-                      const vector<string> & items, int width, int hovered)
+                      XftFont * font, const MenuColors & colors,
+                      const vector<string> & items, int width, int height,
+                      int hovered)
 {
     // Redraw the whole thing each time rather than tracking damage --
     // this is a handful of text rows, not worth the bookkeeping.
-    XClearWindow(display, win);
+    XftDrawRect(draw, &colors.border, 0, 0, width, height);
+    XftDrawRect(draw, &colors.background, FRAME, FRAME,
+                width - FRAME * 2, height - FRAME * 2);
 
     for (size_t i = 0; i < items.size(); i++)
     {
-        int rowTop = (int)i * ITEM_HEIGHT;
+        int rowTop = FRAME + (int)i * ITEM_HEIGHT;
+        bool selected = ((int)i == hovered);
 
-        if ((int)i == hovered)
-            XftDrawRect(draw, &highlightColor, 0, rowTop, width, ITEM_HEIGHT);
+        if (selected)
+            XftDrawRect(draw, &colors.highlight, FRAME, rowTop,
+                        width - FRAME * 2, ITEM_HEIGHT);
 
         int baseline = rowTop + PADDING_Y + font->ascent;
-        XftDrawStringUtf8(draw, &textColor, font, PADDING_X, baseline,
+        XftDrawStringUtf8(draw, selected ? &colors.selectedText : &colors.text,
+                           font, FRAME + PADDING_X, baseline,
                            (const XftChar8 *)items[i].c_str(),
                            items[i].length());
     }
+    XFlush(display);
 }
 
 int showContextMenu(Display * display, int screen, Window root,
@@ -76,8 +91,8 @@ int showContextMenu(Display * display, int screen, Window root,
                             items[i].length(), &extents);
         maxTextWidth = max(maxTextWidth, (int)extents.xOff);
     }
-    int width = maxTextWidth + PADDING_X * 2;
-    int height = (int)items.size() * ITEM_HEIGHT;
+    int width = maxTextWidth + PADDING_X * 2 + FRAME * 2;
+    int height = (int)items.size() * ITEM_HEIGHT + FRAME * 2;
 
     // Clamp so the menu always renders fully on-screen, regardless of
     // how close to an edge the click that opened it was.
@@ -93,11 +108,11 @@ int showContextMenu(Display * display, int screen, Window root,
     XSetWindowAttributes attrs;
     attrs.override_redirect = True;
     attrs.background_pixel = WhitePixel(display, screen);
-    attrs.border_pixel = BlackPixel(display, screen);
+    attrs.border_pixel = BlackPixel(display, screen); // frame is drawn inside
     attrs.event_mask = ButtonPressMask | ButtonReleaseMask |
                         PointerMotionMask | KeyPressMask | ExposureMask;
 
-    Window win = XCreateWindow(display, root, x, y, width, height, 1,
+    Window win = XCreateWindow(display, root, x, y, width, height, 0,
                                 CopyFromParent, InputOutput, CopyFromParent,
                                 CWOverrideRedirect | CWBackPixel |
                                 CWBorderPixel | CWEventMask, &attrs);
@@ -106,11 +121,19 @@ int showContextMenu(Display * display, int screen, Window root,
     XFlush(display);
 
     XftDraw * draw = XftDrawCreate(display, win, visual, cmap);
-    XftColor textColor, highlightColor;
-    XRenderColor black = {0, 0, 0, 0xffff};
-    XRenderColor lightGray = {0xe8e8, 0xe8e8, 0xe8e8, 0xffff};
-    XftColorAllocValue(display, visual, cmap, &black, &textColor);
-    XftColorAllocValue(display, visual, cmap, &lightGray, &highlightColor);
+    MenuColors colors;
+    XRenderColor c;
+    c.alpha = 0xffff;
+    c.red = c.green = c.blue = 0x2222;
+    XftColorAllocValue(display, visual, cmap, &c, &colors.text);
+    c.red = c.green = c.blue = 0xffff;
+    XftColorAllocValue(display, visual, cmap, &c, &colors.selectedText);
+    c.red = c.green = c.blue = 0xf3f3;
+    XftColorAllocValue(display, visual, cmap, &c, &colors.background);
+    c.red = c.green = c.blue = 0x7070;
+    XftColorAllocValue(display, visual, cmap, &c, &colors.border);
+    c.red = 0x2d2d; c.green = 0x6b6b; c.blue = 0xc8c8;
+    XftColorAllocValue(display, visual, cmap, &c, &colors.highlight);
 
     // Grabbed so a click anywhere -- not just inside the menu -- is
     // still delivered to us (reported in this window's own coordinate
@@ -128,6 +151,18 @@ int showContextMenu(Display * display, int screen, Window root,
     XGrabKeyboard(display, win, True, GrabModeAsync, GrabModeAsync,
                   CurrentTime);
 
+    // which row a point (in the menu window's own coordinates) is on, or -1
+    struct RowAt
+    {
+        int w, count;
+        int operator()(int px, int py) const
+        {
+            int row = (py - FRAME) / ITEM_HEIGHT;
+            return (px >= FRAME && px < w - FRAME && py >= FRAME &&
+                    row < count) ? row : -1;
+        }
+    } rowAt = { width, (int)items.size() };
+
     int hovered = -1;
     int selected = -1;
     bool done = false;
@@ -139,32 +174,25 @@ int showContextMenu(Display * display, int screen, Window root,
         switch (ev.type)
         {
             case Expose:
-                drawMenu(display, win, draw, font, textColor,
-                         highlightColor, items, width, hovered);
+                drawMenu(display, win, draw, font, colors, items, width,
+                         height, hovered);
                 break;
 
             case MotionNotify:
             {
-                int row = ev.xmotion.y / ITEM_HEIGHT;
-                int newHovered =
-                    (ev.xmotion.x >= 0 && ev.xmotion.x < width &&
-                     ev.xmotion.y >= 0 && row < (int)items.size())
-                        ? row : -1;
+                int newHovered = rowAt(ev.xmotion.x, ev.xmotion.y);
                 if (newHovered != hovered)
                 {
                     hovered = newHovered;
-                    drawMenu(display, win, draw, font, textColor,
-                             highlightColor, items, width, hovered);
+                    drawMenu(display, win, draw, font, colors, items, width,
+                             height, hovered);
                 }
                 break;
             }
 
             case ButtonRelease:
             {
-                int row = ev.xbutton.y / ITEM_HEIGHT;
-                if (ev.xbutton.x >= 0 && ev.xbutton.x < width &&
-                    ev.xbutton.y >= 0 && row < (int)items.size())
-                    selected = row;
+                selected = rowAt(ev.xbutton.x, ev.xbutton.y);
                 // else: released outside the menu entirely -- selected
                 // stays -1, same as Escape
                 done = true;
@@ -174,8 +202,22 @@ int showContextMenu(Display * display, int screen, Window root,
             case KeyPress:
             {
                 KeySym keysym = XLookupKeysym(&ev.xkey, 0);
+                int n = (int)items.size();
                 if (keysym == XK_Escape)
                     done = true;
+                else if (keysym == XK_Down || keysym == XK_KP_Down)
+                    hovered = (hovered < 0) ? 0 : (hovered + 1) % n;
+                else if (keysym == XK_Up || keysym == XK_KP_Up)
+                    hovered = (hovered < 0) ? n - 1 : (hovered + n - 1) % n;
+                else if ((keysym == XK_Return || keysym == XK_KP_Enter) &&
+                         hovered >= 0)
+                {
+                    selected = hovered;
+                    done = true;
+                }
+                if (!done)
+                    drawMenu(display, win, draw, font, colors, items, width,
+                             height, hovered);
                 break;
             }
         }
@@ -184,8 +226,11 @@ int showContextMenu(Display * display, int screen, Window root,
     XUngrabKeyboard(display, CurrentTime);
     XUngrabPointer(display, CurrentTime);
 
-    XftColorFree(display, visual, cmap, &textColor);
-    XftColorFree(display, visual, cmap, &highlightColor);
+    XftColorFree(display, visual, cmap, &colors.text);
+    XftColorFree(display, visual, cmap, &colors.selectedText);
+    XftColorFree(display, visual, cmap, &colors.background);
+    XftColorFree(display, visual, cmap, &colors.border);
+    XftColorFree(display, visual, cmap, &colors.highlight);
     XftDrawDestroy(draw);
     XftFontClose(display, font);
     XDestroyWindow(display, win);

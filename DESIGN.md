@@ -923,7 +923,7 @@ executable absolute path of the running binary, correct whether run
 from a dev build directory or a real system install, no configuration
 needed either way.
 
-## Context menu, base piece -- DONE (Rename/Delete/Properties themselves still pending)
+## Context menu, base piece -- DONE
 
 Right-click on an icon now opens a small popup menu -- this piece is
 just the menu itself (`ContextMenu.{h,cpp}`): shows placeholder items,
@@ -1435,3 +1435,55 @@ is already off-screen is affected. Left alone.
 - Two unrelated leaks, left as they were: an icon whose image fails to load is
   not deleted (as in `loadIcons()`), and a failed `refreshIcon()` leaves its half
   built icon behind.
+
+## Context menu: Properties, and a menu that shows what you will pick -- DONE
+
+**Menu look.** The row under the pointer used to be filled with `#e8e8e8` on a
+white panel, which is nearly invisible. It now follows the usual Openbox look: a
+light panel inside a 1 px darker frame, and the row under the pointer filled with
+an accent blue (`#2d6bc8`) with white text. The keyboard works too: Up/Down move
+the highlight, Enter picks it, Escape cancels. Rows are hit-tested inside the
+frame, so the corner pixel the menu opens on is not a row.
+
+**Properties.** A modal form (`PropertiesDialog.cpp`, same family as `TextInput`:
+runs inside the live session, plain Xlib/Xft, grabs pointer and keyboard):
+
+| icon file | fields (editable) | written to |
+|---|---|---|
+| `.desktop` | Name, Exec, Icon | `Name=`, `Exec=`, `Icon=` in `[Desktop Entry]` |
+| `.lnk` | Name (Caption), Command, Icon | `Caption:`, `Command:`, `Icon:` in the `Icon` table |
+| plain file/folder | Name | renames the file (as Rename does); Location, size/type are information |
+
+- Tab/Down and Shift+Tab/Up move between fields, a click focuses one, Enter
+  accepts, Escape or a click outside cancels. Only the keys that changed are
+  written; `Name[es]=`, other groups, comments and permissions are untouched
+  (same writer as Rename, generalised to `setDesktopKey`/`setLnkKey`).
+- `Exec` is shown and saved **raw** (with its `%U` codes). The icon on screen uses
+  the stripped command, but rewriting the file from the stripped version would
+  silently drop the field codes a file manager relies on.
+- A `.lnk` whose `Command` is a list (`Command[0]`, `Command[1]`...) shows its
+  first element read-only: one field cannot stand for several.
+- Refused with a message, nothing written: empty name, empty command, an absolute
+  Icon path that does not exist, and a `.desktop`/`.lnk` that is a symbolic link
+  (editing would modify the original, e.g. a system launcher).
+- After writing, the icon is replaced in place (`refreshIcon`), so no restart and
+  no flicker. If that fails -- e.g. the Icon file exists but is not an image --
+  the values written are put back and idesk-ng restarts from the restored file,
+  so a bad entry can never leave the person with a vanished icon.
+- Typing is the `LineEditor` that was extracted from `TextInput` (UTF-8, dead keys
+  composed from a small table, Home/End/Ctrl+A); Rename uses the same class.
+- `refreshIcon()` now records the file's modification time: before, the inotify
+  event caused by idesk-ng's own write made `syncDesktop()` refresh the icon a
+  second time ~400 ms later.
+
+**Verified** (Xvfb + xdotool, plus `valgrind`: 0 errors): hover and keyboard
+highlight pixels; a `.desktop` edited with an accented name, new Exec and a new
+icon (file contents compared, other keys preserved); a `.lnk`; Escape leaves the
+file untouched; empty name / missing icon / symlink show their message and write
+nothing; a non-image Icon is reverted; a plain file renamed from Properties
+carries its saved position over; Rename after the `LineEditor` refactor.
+`tests/IconEditTest.cpp` covers the new getters/setters (raw Exec, key only in
+`[Desktop Entry]`, absent key added, `.lnk` list flagged, symlink refused).
+
+**Not done:** editing the tooltip/comment, or the icon's other `.lnk` options;
+choosing an icon with a file picker; mouse placement of the text cursor.

@@ -123,6 +123,9 @@ class XDesktopContainer : public DesktopContainer
         void exeCurrentAction(XIcon * icon);
         void deleteIcon(XIcon * icon);
         void renameIcon(XIcon * icon);
+        void propertiesIcon(XIcon * icon);
+        bool renamePlainOnDisk(XIcon * icon, DesktopIconConfig * cfg,
+                               const string & newName, string & error);
         bool refreshIcon(XIcon * oldIcon);
         void notify(const string & text);
 

@@ -47,11 +47,12 @@ static string trim(const string & s)
     return s.substr(a, b - a + 1);
 }
 
-bool setLnkCaption(const string & path, const string & caption, string & error)
+bool setLnkKey(const string & path, const string & key, const string & value,
+               string & error)
 {
     if (isSymlink(path))
     {
-        error = "This icon is a symbolic link; renaming it would change the original file.";
+        error = "This icon is a symbolic link; changing it would modify the original file.";
         return false;
     }
 
@@ -71,16 +72,78 @@ bool setLnkCaption(const string & path, const string & caption, string & error)
         return false;
     }
 
-    table.Set("Caption", caption);
+    table.Set(key, value);
     db.Write();
     return true;
 }
 
+bool setLnkCaption(const string & path, const string & caption, string & error)
+{
+    return setLnkKey(path, "Caption", caption, error);
+}
+
+bool getLnkKey(const string & path, const string & key, string & value,
+               bool & isArray)
+{
+    value.clear();
+    isArray = false;
+    if (access(path.c_str(), R_OK) != 0)
+        return false;
+    Database db(path, false);
+    Table & table = db.Query("Icon");
+    if (!table.isValid())
+        return false;
+    if (table.ArrayExists(key))
+    {
+        isArray = true;
+        vector<string> all = table.QueryArray(key);
+        if (!all.empty())
+            value = all[0];
+    }
+    else
+        value = table.Query(key);
+    return true;
+}
+
+bool getDesktopKey(const string & path, const string & key, string & value)
+{
+    value.clear();
+    ifstream in(path.c_str());
+    if (!in.is_open())
+        return false;
+    bool inEntry = false;
+    string line;
+    while (getline(in, line))
+    {
+        string t = trim(line);
+        if (!t.empty() && t[0] == '[')
+        {
+            inEntry = (t == "[Desktop Entry]");
+            continue;
+        }
+        if (!inEntry)
+            continue;
+        size_t eq = line.find('=');
+        if (eq != string::npos && trim(line.substr(0, eq)) == key)
+        {
+            value = trim(line.substr(eq + 1));
+            return true;
+        }
+    }
+    return false;
+}
+
 bool setDesktopName(const string & path, const string & name, string & error)
+{
+    return setDesktopKey(path, "Name", name, error);
+}
+
+bool setDesktopKey(const string & path, const string & key,
+                   const string & value, string & error)
 {
     if (isSymlink(path))
     {
-        error = "This launcher is a symbolic link; renaming it would change the original file.";
+        error = "This launcher is a symbolic link; changing it would modify the original file.";
         return false;
     }
 
@@ -116,9 +179,9 @@ bool setDesktopName(const string & path, const string & name, string & error)
         // only the plain key: Name[es]= has a different key, and a
         // comment line like "# Name=x" has the key "# Name"
         size_t eq = lines[i].find('=');
-        if (eq != string::npos && trim(lines[i].substr(0, eq)) == "Name")
+        if (eq != string::npos && trim(lines[i].substr(0, eq)) == key)
         {
-            lines[i] = "Name=" + name;
+            lines[i] = key + "=" + value;
             replaced = true;
         }
     }
@@ -130,7 +193,7 @@ bool setDesktopName(const string & path, const string & name, string & error)
             error = "No [Desktop Entry] group in " + path;
             return false;
         }
-        lines.insert(lines.begin() + headerIndex + 1, "Name=" + name);
+        lines.insert(lines.begin() + headerIndex + 1, key + "=" + value);
     }
 
     struct stat st;

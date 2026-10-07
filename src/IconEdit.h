@@ -47,6 +47,25 @@ bool setLnkCaption(const string & path, const string & caption, string & error);
 // real system launcher, and writing through it would modify that.
 bool setDesktopName(const string & path, const string & name, string & error);
 
+// The general forms of the two above, for any key (Properties edits Name,
+// Exec/Command and Icon). setLnkKey() sets `key` in the [Icon] table of a
+// .lnk; setDesktopKey() sets `key=` in [Desktop Entry] with the same care as
+// setDesktopName(), which is now setDesktopKey(..., "Name", ...).
+bool setLnkKey(const string & path, const string & key, const string & value,
+               string & error);
+bool setDesktopKey(const string & path, const string & key,
+                   const string & value, string & error);
+
+// Reads the raw value of a key, for showing it in the Properties dialog.
+// getDesktopKey: the plain `key=` in [Desktop Entry] (not Name[es]= and the
+// like); returns false when the file or key is missing (value empty).
+// getLnkKey: false if the file can't be read as an icon; `isArray` is set when
+// the key is a list in the file (Command[0], Command[1]...), in which case
+// `value` is its first element and the caller should treat it as read-only.
+bool getDesktopKey(const string & path, const string & key, string & value);
+bool getLnkKey(const string & path, const string & key, string & value,
+               bool & isArray);
+
 // Renames a plain file or folder on disk (through GIO, which also
 // rejects invalid names and refuses to overwrite an existing file).
 // newPath receives the file's new absolute path.

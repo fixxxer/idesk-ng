@@ -30,6 +30,7 @@
 #include "IconLayout.h"
 #include "ContextMenu.h"
 #include "TextInput.h"
+#include "PropertiesDialog.h"
 #include "IconEdit.h"
 #include "XImlib2Image.h"
 #include "XImlib2Caption.h"
@@ -1142,6 +1143,7 @@ bool XDesktopContainer::refreshIcon(XIcon * oldIcon)
 
 	int x = oldIcon->getX();
 	int y = oldIcon->getY();
+	string path = oldConfig->getIconFilename();
 
 	DesktopIconConfig * fresh = dConfig->rebuildIconConfig(oldConfig);
 	if (!fresh)
@@ -1176,7 +1178,30 @@ bool XDesktopContainer::refreshIcon(XIcon * oldIcon)
 	newIcon->mapImageWindow();
 	newIcon->initMapCaptionWindow();
 
+	// what was just read is what is on screen: the inotify event that our own
+	// write caused must not make syncDesktop() refresh this icon a second time
+	recordMtime(path);
+
 	XFlush(display);
+	return true;
+}
+
+// Renames a plain file/folder icon's file on disk and carries its saved
+// position over. Position is keyed by file path in layout.db: the entry moves
+// to the new path and the old one is dropped. The in-memory path is updated as
+// well so that, should the in-place refresh that follows fail and fall back to
+// a full restart, saveState() records this icon under its new path instead of
+// resurrecting the old entry.
+bool XDesktopContainer::renamePlainOnDisk(XIcon * icon, DesktopIconConfig * cfg,
+                                          const string & newName, string & error)
+{
+	string path = cfg->getIconFilename();
+	string newPath;
+	if (!renamePlainFile(path, newName, newPath, error))
+		return false;
+	removeLayoutPosition(path);
+	seedLayoutPosition(newPath, icon->getX(), icon->getY());
+	cfg->setIconFilename(newPath);
 	return true;
 }
 
@@ -1217,21 +1242,7 @@ void XDesktopContainer::renameIcon(XIcon * icon)
 	else if (isDesktop)
 		ok = setDesktopName(path, newName, error);
 	else
-	{
-		string newPath;
-		ok = renamePlainFile(path, newName, newPath, error);
-		if (ok)
-		{
-			// Position is keyed by file path in layout.db: carry it over to
-			// the new path and drop the old entry. The in-memory path is
-			// updated as well so that, should the in-place refresh below fail
-			// and fall back to a full restart, saveState() records this icon
-			// under its new path instead of resurrecting the old entry.
-			removeLayoutPosition(path);
-			seedLayoutPosition(newPath, icon->getX(), icon->getY());
-			dIconConfig->setIconFilename(newPath);
-		}
-	}
+		ok = renamePlainOnDisk(icon, dIconConfig, newName, error);
 
 	if (!ok)
 	{
@@ -1244,6 +1255,217 @@ void XDesktopContainer::renameIcon(XIcon * icon)
 		app->restartIdesk();
 }
 
+static string trimmed(const string & in)
+{
+	return cleanName(in);
+}
+
+static string dirNameOf(const string & path)
+{
+	size_t p = path.find_last_of('/');
+	return p == string::npos ? "." : (p == 0 ? "/" : path.substr(0, p));
+}
+
+static string humanSize(off_t n)
+{
+	char buf[32];
+	if (n < 1024)
+		snprintf(buf, sizeof(buf), "%ld bytes", (long)n);
+	else if (n < 1024 * 1024)
+		snprintf(buf, sizeof(buf), "%.1f KB", n / 1024.0);
+	else if (n < 1024LL * 1024 * 1024)
+		snprintf(buf, sizeof(buf), "%.1f MB", n / (1024.0 * 1024));
+	else
+		snprintf(buf, sizeof(buf), "%.1f GB", n / (1024.0 * 1024 * 1024));
+	return buf;
+}
+
+// Properties: a form with the icon's name, command and image. For a .lnk or a
+// .desktop these are Caption/Command/Icon and Name/Exec/Icon, edited in the
+// file itself (Exec shown raw, with its %U codes, and written back as typed);
+// for a plain file or folder only the name is editable (it renames the file,
+// exactly like Rename) and the rest is information. Whatever changed is
+// written, then the icon is replaced in place; if that fails the old values are
+// put back on disk and idesk-ng restarts, so a bad entry (an Icon that doesn't
+// load) can never leave the person with a vanished icon.
+void XDesktopContainer::propertiesIcon(XIcon * icon)
+{
+	DesktopIconConfig * dIconConfig =
+	    dynamic_cast<DesktopIconConfig *>(icon->getIconConfig());
+	if (!dIconConfig)
+		return;
+
+	string path = dIconConfig->getIconFilename();
+	bool isLnk = endsWith(path, ".lnk");
+	bool isDesktop = endsWith(path, ".desktop");
+
+	struct stat st;
+	if (lstat(path.c_str(), &st) != 0)
+	{
+		notify("This icon's file is gone.");
+		return;
+	}
+	if ((isLnk || isDesktop) && S_ISLNK(st.st_mode))
+	{
+		notify("This icon is a link to another file; its properties can't be changed here without modifying the original.");
+		return;
+	}
+
+	vector<PropField> fields;
+	int nameIdx = -1, cmdIdx = -1, iconIdx = -1;
+	string footer;
+
+	if (isLnk || isDesktop)
+	{
+		string name, cmd, img;
+		bool isArray = false, hasCmd = false;
+		if (isLnk)
+		{
+			if (!getLnkKey(path, "Caption", name, isArray))
+			{
+				notify("Cannot read " + path);
+				return;
+			}
+			hasCmd = getLnkKey(path, "Command", cmd, isArray) && (isArray || !cmd.empty());
+			{ bool imgArray; getLnkKey(path, "Icon", img, imgArray); }
+		}
+		else
+		{
+			getDesktopKey(path, "Name", name);
+			hasCmd = getDesktopKey(path, "Exec", cmd);
+			getDesktopKey(path, "Icon", img);
+		}
+		if (name.empty())
+			name = dIconConfig->getCaption(); // a localized or defaulted name
+		if (name.empty())
+			name = baseNameOf(path);
+
+		nameIdx = fields.size();
+		fields.push_back(PropField("Name", name, true));
+		if (hasCmd)
+		{
+			cmdIdx = fields.size();
+			// a list of commands in a .lnk (Command[0], Command[1]...) is
+			// shown but not editable: one field can't stand for several
+			fields.push_back(PropField(isLnk ? "Command" : "Exec", cmd, !isArray));
+		}
+		iconIdx = fields.size();
+		fields.push_back(PropField("Icon", img, true));
+		footer = path;
+	}
+	else
+	{
+		nameIdx = fields.size();
+		fields.push_back(PropField("Name", baseNameOf(path), true));
+		fields.push_back(PropField("Location", dirNameOf(path), false));
+		footer = S_ISDIR(st.st_mode) ? "Folder"
+		                             : "File, " + humanSize(st.st_size);
+	}
+
+	vector<PropField> original = fields;
+	if (!showPropertiesDialog(display, DefaultScreen(display), rootWindow,
+	                          imlib_context_get_visual(),
+	                          imlib_context_get_colormap(),
+	                          "Properties", fields, footer))
+		return;
+
+	string newName = cleanName(fields[nameIdx].value);
+	string newCmd = cmdIdx >= 0 ? trimmed(fields[cmdIdx].value) : "";
+	string newImg = iconIdx >= 0 ? trimmed(fields[iconIdx].value) : "";
+	string oldName = original[nameIdx].value;
+	string oldCmd = cmdIdx >= 0 ? original[cmdIdx].value : "";
+	string oldImg = iconIdx >= 0 ? original[iconIdx].value : "";
+
+	bool nameChanged = newName != trimmed(oldName);
+	bool cmdChanged = cmdIdx >= 0 && fields[cmdIdx].editable && newCmd != trimmed(oldCmd);
+	bool imgChanged = iconIdx >= 0 && newImg != trimmed(oldImg);
+	if (!nameChanged && !cmdChanged && !imgChanged)
+		return;
+
+	if (newName.empty())
+	{
+		notify("The name can't be empty.");
+		return;
+	}
+	if (cmdChanged && newCmd.empty())
+	{
+		notify("The command can't be empty.");
+		return;
+	}
+	// an absolute image path that isn't there would just blank the icon
+	if (imgChanged && !newImg.empty() && newImg[0] == '/' && access(newImg.c_str(), R_OK) != 0)
+	{
+		notify("The icon file " + newImg + " doesn't exist.");
+		return;
+	}
+
+	string error;
+	bool ok = true;
+	if (!isLnk && !isDesktop)
+		ok = renamePlainOnDisk(icon, dIconConfig, newName, error);
+	else
+	{
+		// every write is remembered so a failure part-way, or an icon that
+		// then won't load, can put the file back as it was
+		struct Undo { string key; string value; bool existed; };
+		vector<Undo> done;
+		for (int pass = 0; pass < 3 && ok; pass++)
+		{
+			string key, value, before;
+			bool changed;
+			if (pass == 0) { key = isLnk ? "Caption" : "Name"; value = newName; before = oldName; changed = nameChanged; }
+			else if (pass == 1) { key = isLnk ? "Command" : "Exec"; value = newCmd; before = oldCmd; changed = cmdChanged; }
+			else { key = "Icon"; value = newImg; before = oldImg; changed = imgChanged; }
+			if (!changed)
+				continue;
+			ok = isLnk ? setLnkKey(path, key, value, error)
+			           : setDesktopKey(path, key, value, error);
+			if (ok)
+			{
+				Undo u = { key, before, true };
+				done.push_back(u);
+			}
+		}
+
+		if (ok && !refreshIcon(icon))
+		{
+			// restore, then reload from the restored file
+			string ignored;
+			for (size_t i = done.size(); i-- > 0; )
+			{
+				if (isLnk)
+					setLnkKey(path, done[i].key, done[i].value, ignored);
+				else
+					setDesktopKey(path, done[i].key, done[i].value, ignored);
+			}
+			notify("The new values couldn't be applied; the icon was left as it was.");
+			app->restartIdesk();
+			return;
+		}
+		if (ok)
+			return; // refreshed in place; `icon` is gone
+
+		// a write failed: put back whatever was already written
+		string ignored;
+		for (size_t i = done.size(); i-- > 0; )
+		{
+			if (isLnk)
+				setLnkKey(path, done[i].key, done[i].value, ignored);
+			else
+				setDesktopKey(path, done[i].key, done[i].value, ignored);
+		}
+	}
+
+	if (!ok)
+	{
+		notify(error);
+		return;
+	}
+	// plain file renamed: replace the icon in place
+	if (!refreshIcon(icon))
+		app->restartIdesk();
+}
+
 void XDesktopContainer::exeCurrentAction(XIcon * icon)
 {
 	// Right-click context menu: a plain single right-click has no
@@ -1251,9 +1473,7 @@ void XDesktopContainer::exeCurrentAction(XIcon * icon)
 	// ideskrc files (only "right doubleClk" maps to Execute[1]), so
 	// this doesn't conflict with anything -- and matches the
 	// near-universal convention (right-click, not double-right-click,
-	// opens a context menu) users already expect. Placeholder items
-	// for now -- this piece is just the menu itself; Rename/Delete/
-	// Properties land as their own pieces on top of it.
+	// opens a context menu) users already expect.
 	if (icon && currentAction.getRight() == singleClk)
 	{
 		vector<string> items;
@@ -1270,9 +1490,8 @@ void XDesktopContainer::exeCurrentAction(XIcon * icon)
 			deleteIcon(icon); // may free `icon` -- nothing below may touch it
 		else if (chosen >= 0 && items[chosen] == "Rename")
 			renameIcon(icon); // may restart idesk-ng and never return
-		else if (chosen >= 0)
-			cerr << "Context menu: \"" << items[chosen] << "\" chosen for \""
-			     << icon->getIconConfig()->getCaption() << "\"\n";
+		else if (chosen >= 0 && items[chosen] == "Properties")
+			propertiesIcon(icon); // likewise
 
 		return;
 	}
