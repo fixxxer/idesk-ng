@@ -121,6 +121,7 @@ class XDesktopContainer : public DesktopContainer
         void parseNonIconEvents();
         XIcon * parseIconEvents();
         void exeCurrentAction(XIcon * icon);
+        bool canDrag(XIcon * icon);
         void deleteIcon(XIcon * icon);
         void renameIcon(XIcon * icon);
         void propertiesIcon(XIcon * icon);

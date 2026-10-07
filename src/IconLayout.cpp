@@ -135,3 +135,44 @@ void removeLayoutPosition(const string & path)
     if (found)
         db.Write(layoutDbPath);
 }
+
+bool getLayoutPinned(const string & path)
+{
+    string layoutDbPath = getLayoutDbPath();
+
+    struct stat st;
+    if (stat(layoutDbPath.c_str(), &st) != 0)
+        return false;
+
+    Database db(layoutDbPath, false);
+    Table & table = db.Query(path);
+    return table.isValid() && getUpper(table.Query("Pinned")) == "TRUE";
+}
+
+void setLayoutPinned(const string & path, bool pinned, int x, int y)
+{
+    if (pinned)
+    {
+        seedLayoutPosition(path, x, y); // makes sure the entry exists
+    }
+    else if (!getLayoutPinned(path))
+        return; // nothing to clear
+
+    string layoutDbPath = getLayoutDbPath();
+    Database db(layoutDbPath, false);
+    Table & table = db.Query(path);
+    if (!table.isValid())
+        return;
+
+    for (size_t i = 0; i < table.Label.size(); i++)
+        if (table.Label[i] == "Pinned")
+        {
+            table.Label.erase(table.Label.begin() + i);
+            table.Value.erase(table.Value.begin() + i);
+            break;
+        }
+    if (pinned)
+        table.Set("Pinned", "true");
+
+    db.Write(layoutDbPath);
+}

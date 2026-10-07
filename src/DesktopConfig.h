@@ -35,6 +35,7 @@ class DesktopConfig : public AbstractConfig
 {
     protected:
     bool isLocked, wasLoaded;
+    bool contextMenuEnabled;
     int snapWidth, snapHeight;
     bool snapOn;
     bool startSnapLeft, startSnapTop;
@@ -92,6 +93,7 @@ class DesktopConfig : public AbstractConfig
     virtual void setDesktopOnlyOptions(Table);
 
     virtual bool getLocked() { return isLocked; }
+    virtual bool getContextMenuEnabled() { return contextMenuEnabled; }
     virtual bool getSnapState() { return snapOn; }
     virtual bool getStartSnapTop() { return startSnapTop; }
     virtual bool getStartSnapLeft() { return startSnapLeft; }

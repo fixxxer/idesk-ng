@@ -1512,3 +1512,54 @@ picker (the Icon field takes a path or a theme name typed by hand).
 - Verified in Xvfb: tooltip text edited and shown on hover, switched off (nothing
   shown), switched on again; the `.lnk` variant; clicks at the start, middle and
   end of a field in both dialogs.
+
+## Pinning icons, and a context-menu switch for kiosks -- DONE
+
+**What was there.** One global switch, `Locked:` in `ideskrc`, read at startup and
+toggled by the Lock action (Control + double right click) which writes it back.
+Checked on real code paths in Xvfb: with `Locked: true` no icon moves; with `false`
+every icon does. Dragging is decided in two places (starting a drag, and each
+motion event), both now going through `XDesktopContainer::canDrag()`.
+
+**Found broken: the Lock gesture.** Since the right-click menu was added, the first
+click of Control + double right click opened the menu (which ignored modifiers) and
+the second click closed it, so the desktop could no longer be locked or unlocked
+from an icon. (It only ever worked over an icon: idesk-ng takes no pointer events
+on the bare root window.) The menu is now opened only by a right click *without*
+Control/Shift/Alt, so any action bound to a modified click reaches its own code.
+Checked: the gesture toggles `Locked` in `ideskrc`, no menu appears, and dragging
+stops / resumes accordingly.
+
+**Per-icon pin.** Properties has a checkbox "Allow dragging this icon". Unchecked
+pins the icon even when the desktop is not locked; when the whole desktop *is*
+locked the footer says so, because then nothing can be dragged whatever the box
+says (the pin can only restrict, like the per-icon tooltip switch).
+
+| icon | where the pin is kept |
+|---|---|
+| `.lnk` | `Draggable: false` in the file itself (it already stores its own X/Y) |
+| `.desktop`, plain file/folder | `Pinned: true` in the icon's `layout.db` table, next to X/Y |
+
+Putting the `.desktop` pin in `layout.db` rather than in the file means it also
+works for a launcher that is a symbolic link to a system file: Properties then
+shows its other fields read-only (they would modify the original) and keeps only
+the pin editable. Unpinning removes the key, so `layout.db` only holds what
+differs from the default. A pin follows a plain file through Rename. If only the
+pin changed nothing is redrawn and the watcher is told (`recordMtime`) so that
+writing a `.lnk` does not make it refresh the icon a moment later. Rolling back
+on a failed write restores the pin too. A file renamed *outside* idesk-ng is
+seen as one that left and one that arrived, so its pin is lost with its position
+(as for any position -- see "Files that appear in or leave ~/Desktop").
+
+**Kiosk: `ContextMenu: false`** in the `Config` table of `ideskrc` (default true)
+removes the right-click menu: no Rename, Delete or Properties. A plain right click
+then falls through to whatever actions are bound to it. Together with
+`Locked: true` this leaves icons that can be launched and nothing else. Note that
+`ideskrc` itself is a file the person can edit; this is a guard against accidents
+and casual use, not a security boundary.
+
+**Verified** (Xvfb + xdotool): pin a `.desktop`, a `.lnk`, a plain file and a
+symlinked launcher, each blocking the drag while a neighbour still moves; pins
+survive a restart; unpinning writes nothing to `layout.db`; Rename keeps a plain
+file's pin; `ContextMenu: false` shows no menu and `true` does; the Lock gesture;
+the "all icons are locked" footer.

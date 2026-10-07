@@ -33,6 +33,7 @@ DesktopIconConfig::DesktopIconConfig(const string & fName, Table &table, CommonO
                          // explicitly for every non-.lnk construction site
     protectedFromDelete = false;
     tipEnabled = true;
+    draggable = true;
     
     common = new CommonOptions();
     
@@ -72,6 +73,9 @@ void DesktopIconConfig::setIconOptions(Table table)
     // turns this icon's tooltip off; anything else leaves it to the global
     // ToolTip.CaptionOnHover of ideskrc
     tipEnabled = (getUpper(table.Query("ToolTip.Enabled")) != "FALSE");
+    // "Draggable: false" (a .lnk) pins this icon; for .desktop files and plain
+    // files the pin lives in layout.db and is applied by DesktopConfig
+    draggable = (getUpper(table.Query("Draggable")) != "FALSE");
 
     if (table.ArrayExists("Command"))
         commandArray = table.QueryArray("Command");

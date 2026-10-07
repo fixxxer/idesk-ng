@@ -9,6 +9,7 @@ table Config
   ToolTip.CaptionOnHover: true
   ToolTip.CaptionPlacement: Bottom
   Locked: false
+  ContextMenu: true
   Transparency: 50
   Shadow: true
   ShadowColor: #000000

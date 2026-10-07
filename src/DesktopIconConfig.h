@@ -114,6 +114,7 @@ class DesktopIconConfig : public AbstractIconConfig
         IconOrigin origin;
         bool protectedFromDelete;
         bool tipEnabled;       // per icon: false suppresses its tooltip
+        bool draggable;        // per icon: false pins it in place
 
     public:
 	DesktopIconConfig(const string & fName, Table &table, CommonOptions * parentData);
@@ -131,6 +132,8 @@ class DesktopIconConfig : public AbstractIconConfig
         // context menu's Delete action checks this and refuses.
         virtual bool isProtected() { return protectedFromDelete; }
         virtual bool isTipEnabled() { return tipEnabled; }
+        virtual bool isDraggable() { return draggable; }
+        virtual void setDraggable(bool d) { draggable = d; }
 
         // Used after a plain file is renamed from the context menu, so
         // the restart's saveState() records its position under the new

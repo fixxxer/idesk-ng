@@ -131,7 +131,11 @@ end
 
 - "ToolTip.CaptionOnHover" is a boolean (true/false) value. Setting it to true will make the icon's tip text appear when the mouse hovers over an icon. False is the default behavior.
 
-- "Locked" is boolean (true/false). Setting it to true disables the dragging movement.
+- "Locked" is boolean (true/false). Setting it to true disables the dragging movement of every icon. The Lock action (Control + double right click by default) toggles it and saves the new value here.
+
+- "ContextMenu" is boolean (true/false), true by default. The right-click menu on an icon (Rename, Delete, Properties) is shown only for a plain right click, so actions bound to a modified click (like the default Lock) are not swallowed by it. Setting it to false removes the menu altogether -- meant for kiosk setups, where nobody should be able to rename, delete or edit icons. Combine it with "Locked: true" to also keep the icons in place.
+
+- Per icon (set from the Properties dialog, or by hand): "Draggable: false" in a .lnk, "ToolTip.Enabled: false" in a .lnk (or "X-Idesk-Tooltip=false" in a .desktop) turn that icon's tooltip off. A .desktop file or a plain file/folder is pinned with "Pinned: true" in its table of layout.db. An icon can be dragged only if neither "Locked" nor its own pin says otherwise.
 
 - "Transparency" is between 0 (no glow effect) and 255 (invisible without a mouseover).
 

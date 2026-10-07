@@ -88,6 +88,7 @@ void DesktopConfig::setOptions(Table table)
 void DesktopConfig::setDefaults()
 {
     isLocked = false;
+    contextMenuEnabled = true;
     snapOn = false;
     snapWidth = 1;
     snapHeight = 1;
@@ -124,6 +125,13 @@ void DesktopConfig::setDesktopOnlyOptions(Table table)
         isLocked = true;
     else if (getUpper(table.Query("Locked")) == "FALSE")
         isLocked = false;
+
+    // right-click menu (Rename/Delete/Properties); "ContextMenu: false" for
+    // a kiosk, where nobody should be able to change the icons
+    if (getUpper(table.Query("ContextMenu")) == "FALSE")
+        contextMenuEnabled = false;
+    else if (getUpper(table.Query("ContextMenu")) == "TRUE")
+        contextMenuEnabled = true;
 
     //snap options
     if (getUpper(table.Query("IconSnap")) == "TRUE")
@@ -304,6 +312,7 @@ DesktopIconConfig * DesktopConfig::createIconConfig(const string & filename,
 					}
 					DesktopIconConfig *iconPtr = new DesktopIconConfig(filename, fdi, common);
 					iconPtr->setOrigin(DesktopIconConfig::ORIGIN_LAYOUT_DB);
+					iconPtr->setDraggable(!getLayoutPinned(filename));
 					return iconPtr;
 				} else if (!fdi.isValid())
 					cerr << "Error: \"" << displayName << "\" is not a valid .desktop desktop icon\n";
@@ -326,6 +335,7 @@ DesktopIconConfig * DesktopConfig::createIconConfig(const string & filename,
 				}
 				DesktopIconConfig *iconPtr = new DesktopIconConfig(filename, gfi, common);
 				iconPtr->setOrigin(DesktopIconConfig::ORIGIN_LAYOUT_DB);
+				iconPtr->setDraggable(!getLayoutPinned(filename));
 				return iconPtr;
 			}
 			// else: Desktop.AutoIcons is off -- a plain file that isn't

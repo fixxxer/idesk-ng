@@ -647,7 +647,7 @@ XIcon * XDesktopContainer::parseIconEvents()
                 break;
 			
             case MotionNotify:
-                if (icon->isDragging() && !isLocked())
+                if (icon->isDragging() && canDrag(icon))
 		     icon->dragMotionNotify(event);
                 break;
 
@@ -1199,8 +1199,11 @@ bool XDesktopContainer::renamePlainOnDisk(XIcon * icon, DesktopIconConfig * cfg,
 	string newPath;
 	if (!renamePlainFile(path, newName, newPath, error))
 		return false;
+	bool pinned = getLayoutPinned(path); // the pin travels with the file
 	removeLayoutPosition(path);
 	seedLayoutPosition(newPath, icon->getX(), icon->getY());
+	if (pinned)
+		setLayoutPinned(newPath, true, icon->getX(), icon->getY());
 	cfg->setIconFilename(newPath);
 	return true;
 }
@@ -1305,14 +1308,20 @@ void XDesktopContainer::propertiesIcon(XIcon * icon)
 		notify("This icon's file is gone.");
 		return;
 	}
-	if ((isLnk || isDesktop) && S_ISLNK(st.st_mode))
+	// A .desktop that is a link (a system launcher) can't have its own text
+	// changed without modifying the original, but whether it may be dragged is
+	// kept in layout.db, so that one setting stays editable. A .lnk keeps
+	// everything in itself, so a link to one gets nothing.
+	bool linked = S_ISLNK(st.st_mode);
+	if (isLnk && linked)
 	{
 		notify("This icon is a link to another file; its properties can't be changed here without modifying the original.");
 		return;
 	}
+	bool rw = !(isDesktop && linked); // text fields editable
 
 	vector<PropField> fields;
-	int nameIdx = -1, cmdIdx = -1, iconIdx = -1, tipIdx = -1, tipOnIdx = -1;
+	int nameIdx = -1, cmdIdx = -1, iconIdx = -1, tipIdx = -1, tipOnIdx = -1, pinIdx = -1;
 	string footer;
 
 	if (isLnk || isDesktop)
@@ -1348,37 +1357,50 @@ void XDesktopContainer::propertiesIcon(XIcon * icon)
 			name = baseNameOf(path);
 
 		nameIdx = fields.size();
-		fields.push_back(PropField("Name", name, true));
+		fields.push_back(PropField("Name", name, rw));
 		if (hasCmd)
 		{
 			cmdIdx = fields.size();
 			// a list of commands in a .lnk (Command[0], Command[1]...) is
 			// shown but not editable: one field can't stand for several
-			fields.push_back(PropField(isLnk ? "Command" : "Exec", cmd, !isArray));
+			fields.push_back(PropField(isLnk ? "Command" : "Exec", cmd, rw && !isArray));
 		}
 		iconIdx = fields.size();
-		fields.push_back(PropField("Icon", img, true));
+		fields.push_back(PropField("Icon", img, rw));
 		tipIdx = fields.size();
-		fields.push_back(PropField("Tooltip", tip, true));
+		fields.push_back(PropField("Tooltip", tip, rw));
 		// a tooltip is shown unless this icon says "false" (an absent key
 		// leaves it to the global setting of ideskrc)
 		tipOnIdx = fields.size();
 		fields.push_back(PropField("Show tooltip when the pointer is over the icon",
-		                           getUpper(tipOn) == "FALSE" ? "0" : "1", true, true));
+		                           getUpper(tipOn) == "FALSE" ? "0" : "1", rw, true));
+		pinIdx = fields.size();
+		fields.push_back(PropField("Allow dragging this icon",
+		                           dIconConfig->isDraggable() ? "1" : "0", true, true));
 		footer = path;
+		if (!rw)
+			footer += "\nThis launcher is a link: only whether it can be dragged is changed here.";
 		DesktopConfig * dc = dynamic_cast<DesktopConfig *>(config);
 		if (dc && !dc->getCaptionTipOnHover())
 			footer += "\nTooltips are off for all icons (ToolTip.CaptionOnHover in ideskrc).";
 		else
 			footer += "\nEmpty tooltip text shows the name.";
+		if (dc && dc->getLocked())
+			footer += "\nAll icons are locked (Locked: true in ideskrc): none can be dragged.";
 	}
 	else
 	{
 		nameIdx = fields.size();
 		fields.push_back(PropField("Name", baseNameOf(path), true));
 		fields.push_back(PropField("Location", dirNameOf(path), false));
+		pinIdx = fields.size();
+		fields.push_back(PropField("Allow dragging this icon",
+		                           dIconConfig->isDraggable() ? "1" : "0", true, true));
 		footer = S_ISDIR(st.st_mode) ? "Folder"
 		                             : "File, " + humanSize(st.st_size);
+		DesktopConfig * dc = dynamic_cast<DesktopConfig *>(config);
+		if (dc && dc->getLocked())
+			footer += "\nAll icons are locked (Locked: true in ideskrc): none can be dragged.";
 	}
 
 	vector<PropField> original = fields;
@@ -1393,21 +1415,25 @@ void XDesktopContainer::propertiesIcon(XIcon * icon)
 	string newImg = iconIdx >= 0 ? trimmed(fields[iconIdx].value) : "";
 	string newTip = tipIdx >= 0 ? trimmed(fields[tipIdx].value) : "";
 	string newTipOn = tipOnIdx >= 0 ? fields[tipOnIdx].value : "";
+	bool newPinned = pinIdx >= 0 && fields[pinIdx].value != "1";
+	bool oldPinned = pinIdx >= 0 && original[pinIdx].value != "1";
+	bool pinChanged = newPinned != oldPinned;
 	string oldTip = tipIdx >= 0 ? original[tipIdx].value : "";
 	string oldTipOn = tipOnIdx >= 0 ? original[tipOnIdx].value : "";
 	string oldName = original[nameIdx].value;
 	string oldCmd = cmdIdx >= 0 ? original[cmdIdx].value : "";
 	string oldImg = iconIdx >= 0 ? original[iconIdx].value : "";
 
-	bool nameChanged = newName != trimmed(oldName);
+	bool nameChanged = fields[nameIdx].editable && newName != trimmed(oldName);
 	bool cmdChanged = cmdIdx >= 0 && fields[cmdIdx].editable && newCmd != trimmed(oldCmd);
 	bool imgChanged = iconIdx >= 0 && newImg != trimmed(oldImg);
 	bool tipChanged = tipIdx >= 0 && newTip != trimmed(oldTip);
 	bool tipOnChanged = tipOnIdx >= 0 && newTipOn != oldTipOn;
-	if (!nameChanged && !cmdChanged && !imgChanged && !tipChanged && !tipOnChanged)
+	bool needRefresh = nameChanged || cmdChanged || imgChanged || tipChanged || tipOnChanged;
+	if (!needRefresh && !pinChanged)
 		return;
 
-	if (newName.empty())
+	if (nameChanged && newName.empty())
 	{
 		notify("The name can't be empty.");
 		return;
@@ -1426,75 +1452,109 @@ void XDesktopContainer::propertiesIcon(XIcon * icon)
 
 	string error;
 	bool ok = true;
-	if (!isLnk && !isDesktop)
-		ok = renamePlainOnDisk(icon, dIconConfig, newName, error);
-	else
-	{
-		// every write is remembered so a failure part-way, or an icon that
-		// then won't load, can put the file back as it was
-		struct Undo { string key; string value; bool existed; };
-		vector<Undo> done;
-		struct Edit { string key, value, before; bool changed; };
-		vector<Edit> edits;
-		Edit e1 = { isLnk ? "Caption" : "Name", newName, oldName, nameChanged };
-		Edit e2 = { isLnk ? "Command" : "Exec", newCmd, oldCmd, cmdChanged };
-		Edit e3 = { "Icon", newImg, oldImg, imgChanged };
-		Edit e4 = { isLnk ? "ToolTip.Caption" : "Comment", newTip, oldTip, tipChanged };
-		Edit e5 = { isLnk ? "ToolTip.Enabled" : "X-Idesk-Tooltip",
-		            newTipOn == "1" ? "true" : "false",
-		            oldTipOn == "1" ? "true" : "false", tipOnChanged };
-		edits.push_back(e1); edits.push_back(e2); edits.push_back(e3);
-		edits.push_back(e4); edits.push_back(e5);
-		for (size_t i = 0; i < edits.size() && ok; i++)
-		{
-			if (!edits[i].changed)
-				continue;
-			ok = isLnk ? setLnkKey(path, edits[i].key, edits[i].value, error)
-			           : setDesktopKey(path, edits[i].key, edits[i].value, error);
-			if (ok)
-			{
-				Undo u = { edits[i].key, edits[i].before, true };
-				done.push_back(u);
-			}
-		}
 
-		if (ok && !refreshIcon(icon))
+	if (!isLnk && !isDesktop)
+	{
+		// plain file or folder: the name (renames the file) and the pin
+		if (nameChanged)
+			ok = renamePlainOnDisk(icon, dIconConfig, newName, error);
+		if (!ok)
 		{
-			// restore, then reload from the restored file
-			string ignored;
-			for (size_t i = done.size(); i-- > 0; )
-			{
-				if (isLnk)
-					setLnkKey(path, done[i].key, done[i].value, ignored);
-				else
-					setDesktopKey(path, done[i].key, done[i].value, ignored);
-			}
-			notify("The new values couldn't be applied; the icon was left as it was.");
-			app->restartIdesk();
+			notify(error);
 			return;
 		}
-		if (ok)
-			return; // refreshed in place; `icon` is gone
-
-		// a write failed: put back whatever was already written
-		string ignored;
-		for (size_t i = done.size(); i-- > 0; )
+		if (pinChanged)
 		{
-			if (isLnk)
-				setLnkKey(path, done[i].key, done[i].value, ignored);
-			else
-				setDesktopKey(path, done[i].key, done[i].value, ignored);
+			setLayoutPinned(dIconConfig->getIconFilename(), newPinned,
+			                icon->getX(), icon->getY());
+			dIconConfig->setDraggable(!newPinned);
 		}
-	}
-
-	if (!ok)
-	{
-		notify(error);
+		if (nameChanged && !refreshIcon(icon)) // `icon` is destroyed on success
+			app->restartIdesk();
 		return;
 	}
-	// plain file renamed: replace the icon in place
-	if (!refreshIcon(icon))
+
+	// every write is remembered so a failure part-way, or an icon that
+	// then won't load, can put the file back as it was
+	struct Undo { string key; string value; };
+	vector<Undo> done;
+	struct Edit { string key, value, before; bool changed; };
+	vector<Edit> edits;
+	Edit e1 = { isLnk ? "Caption" : "Name", newName, oldName, nameChanged };
+	Edit e2 = { isLnk ? "Command" : "Exec", newCmd, oldCmd, cmdChanged };
+	Edit e3 = { "Icon", newImg, oldImg, imgChanged };
+	Edit e4 = { isLnk ? "ToolTip.Caption" : "Comment", newTip, oldTip, tipChanged };
+	Edit e5 = { isLnk ? "ToolTip.Enabled" : "X-Idesk-Tooltip",
+	            newTipOn == "1" ? "true" : "false",
+	            oldTipOn == "1" ? "true" : "false", tipOnChanged };
+	// a .lnk keeps its pin in itself; a .desktop's lives in layout.db (below)
+	Edit e6 = { "Draggable", newPinned ? "false" : "true",
+	            oldPinned ? "false" : "true", isLnk && pinChanged };
+	edits.push_back(e1); edits.push_back(e2); edits.push_back(e3);
+	edits.push_back(e4); edits.push_back(e5); edits.push_back(e6);
+	for (size_t i = 0; i < edits.size() && ok; i++)
+	{
+		if (!edits[i].changed)
+			continue;
+		ok = isLnk ? setLnkKey(path, edits[i].key, edits[i].value, error)
+		           : setDesktopKey(path, edits[i].key, edits[i].value, error);
+		if (ok)
+		{
+			Undo u = { edits[i].key, edits[i].before };
+			done.push_back(u);
+		}
+	}
+	bool layoutPinWritten = false;
+	if (ok && isDesktop && pinChanged)
+	{
+		setLayoutPinned(path, newPinned, icon->getX(), icon->getY());
+		layoutPinWritten = true;
+	}
+
+	if (ok && needRefresh && !refreshIcon(icon))
+		ok = false, error = "The new values couldn't be applied; the icon was left as it was.";
+
+	if (ok)
+	{
+		if (!needRefresh)
+		{
+			// only the pin changed: nothing on screen to redraw, and the file
+			// write must not make the watcher refresh the icon a moment later
+			dIconConfig->setDraggable(!newPinned);
+			recordMtime(path);
+			return;
+		}
+		return; // refreshed in place; `icon` is gone
+	}
+
+	// something failed: put back whatever was already written
+	string ignored;
+	for (size_t i = done.size(); i-- > 0; )
+	{
+		if (isLnk)
+			setLnkKey(path, done[i].key, done[i].value, ignored);
+		else
+			setDesktopKey(path, done[i].key, done[i].value, ignored);
+	}
+	if (layoutPinWritten)
+		setLayoutPinned(path, oldPinned, icon->getX(), icon->getY());
+	notify(error);
+	// a failed refresh may have left the screen half rebuilt: reload from the
+	// restored files. A failed write changed nothing on screen.
+	if (needRefresh && error.find("couldn't be applied") != string::npos)
 		app->restartIdesk();
+}
+
+// An icon is dragged only if the whole desktop is not locked (Locked: in
+// ideskrc, toggled by the Lock action) and this icon is not pinned (Properties,
+// "Allow dragging this icon").
+bool XDesktopContainer::canDrag(XIcon * icon)
+{
+	if (isLocked())
+		return false;
+	DesktopIconConfig * cfg =
+	    dynamic_cast<DesktopIconConfig *>(icon->getIconConfig());
+	return !cfg || cfg->isDraggable();
 }
 
 void XDesktopContainer::exeCurrentAction(XIcon * icon)
@@ -1505,7 +1565,15 @@ void XDesktopContainer::exeCurrentAction(XIcon * icon)
 	// this doesn't conflict with anything -- and matches the
 	// near-universal convention (right-click, not double-right-click,
 	// opens a context menu) users already expect.
-	if (icon && currentAction.getRight() == singleClk)
+	// Only a plain right click, so that actions bound to a modified click --
+	// the default Lock is Control + double right click -- still reach their
+	// own code instead of the menu swallowing the first click. "ContextMenu:
+	// false" in ideskrc (kiosk) turns the menu off altogether.
+	DesktopConfig * menuCfg = dynamic_cast<DesktopConfig *>(config);
+	if (icon && currentAction.getRight() == singleClk &&
+	    !currentAction.getControl() && !currentAction.getShift() &&
+	    !currentAction.getAlt() &&
+	    (!menuCfg || menuCfg->getContextMenuEnabled()))
 	{
 		vector<string> items;
 		items.push_back("Rename");
@@ -1542,7 +1610,7 @@ void XDesktopContainer::exeCurrentAction(XIcon * icon)
     if (icon) //make sure icon is not NULL
     {
         if (actionConfig->getDrag()->isOccuring(currentAction)
-            && !isLocked()
+            && canDrag(icon)
             && !icon->isDragging() ) //only start drag if not already occuring
             icon->dragButtonPress(event);
         else if (actionConfig->getEndDrag()->isOccuring(currentAction))

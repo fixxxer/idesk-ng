@@ -92,10 +92,13 @@ static void drawForm(Form & f)
             int s = lineH + 2;
             int sy = top + (f.rowH - s) / 2;
             XftDrawRect(f.draw, focused ? &f.accent : &f.gray, f.boxX, sy, s, s);
-            XftDrawRect(f.draw, &f.white, f.boxX + 1, sy + 1, s - 2, s - 2);
+            XftDrawRect(f.draw, pf.editable ? &f.white : &f.panel, f.boxX + 1,
+                        sy + 1, s - 2, s - 2);
             if (f.checks[i] == "1")
-                XftDrawRect(f.draw, &f.accent, f.boxX + 4, sy + 4, s - 8, s - 8);
-            XftDrawStringUtf8(f.draw, &f.black, f.font, f.boxX + s + 8,
+                XftDrawRect(f.draw, pf.editable ? &f.accent : &f.gray,
+                            f.boxX + 4, sy + 4, s - 8, s - 8);
+            XftDrawStringUtf8(f.draw, pf.editable ? &f.black : &f.hintColor,
+                               f.font, f.boxX + s + 8,
                                top + (f.rowH - lineH) / 2 + ascent,
                                (const XftChar8 *)pf.label.c_str(),
                                pf.label.length());
