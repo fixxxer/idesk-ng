@@ -71,10 +71,11 @@ bool getLayoutPosition(const string & path, int & outX, int & outY);
 // nothing in either case.
 void removeLayoutPosition(const string & path);
 
-// Whether the icon at `path` is pinned (not draggable). Stored as "Pinned: true"
-// in the same layout.db table as its position, for the icons that keep their
-// position there (.desktop, plain files and folders); a .lnk keeps "Draggable:
-// false" in its own file instead. False if there is no entry or no such key.
+// Whether the icon at `path` is pinned (not draggable). Stored as "Draggable:
+// false" in the same layout.db table as its position, for the icons that keep
+// their position there (.desktop, plain files and folders) -- the very same key
+// and value a .lnk keeps in its own file. False if there is no entry or no
+// such key.
 bool getLayoutPinned(const string & path);
 
 // Sets or clears the pin. Unpinning removes the key rather than writing "false",

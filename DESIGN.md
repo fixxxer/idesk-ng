@@ -1538,7 +1538,10 @@ says (the pin can only restrict, like the per-icon tooltip switch).
 | icon | where the pin is kept |
 |---|---|
 | `.lnk` | `Draggable: false` in the file itself (it already stores its own X/Y) |
-| `.desktop`, plain file/folder | `Pinned: true` in the icon's `layout.db` table, next to X/Y |
+| `.desktop`, plain file/folder | the same `Draggable: false`, in the icon's `layout.db` table next to X/Y |
+
+One key, one value, in both places. (The first version wrote `Pinned: true` in
+`layout.db`; that is still read, and cleared when the pin is changed.)
 
 Putting the `.desktop` pin in `layout.db` rather than in the file means it also
 works for a launcher that is a symbolic link to a system file: Properties then

@@ -135,7 +135,9 @@ end
 
 - "ContextMenu" is boolean (true/false), true by default. The right-click menu on an icon (Rename, Delete, Properties) is shown only for a plain right click, so actions bound to a modified click (like the default Lock) are not swallowed by it. Setting it to false removes the menu altogether -- meant for kiosk setups, where nobody should be able to rename, delete or edit icons. Combine it with "Locked: true" to also keep the icons in place.
 
-- Per icon (set from the Properties dialog, or by hand): "Draggable: false" in a .lnk, "ToolTip.Enabled: false" in a .lnk (or "X-Idesk-Tooltip=false" in a .desktop) turn that icon's tooltip off. A .desktop file or a plain file/folder is pinned with "Pinned: true" in its table of layout.db. An icon can be dragged only if neither "Locked" nor its own pin says otherwise.
+- Per icon, set from the Properties dialog (or by hand):
+  - **Not draggable:** `Draggable: false`. In a .lnk it goes in the file itself; for a .desktop file or a plain file/folder it goes, as the very same line, in that icon's table of `layout.db`. An icon can be dragged only if neither "Locked" nor its own `Draggable: false` says otherwise.
+  - **Tooltip off:** `ToolTip.Enabled: false` in a .lnk, `X-Idesk-Tooltip=false` in a .desktop (a .desktop file only allows vendor keys that start with `X-`). The tooltip text is `ToolTip.Caption:` in a .lnk and `Comment=` in a .desktop.
 
 - "Transparency" is between 0 (no glow effect) and 255 (invisible without a mouseover).
 

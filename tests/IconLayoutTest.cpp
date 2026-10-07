@@ -28,7 +28,7 @@ int main()
 
     CHECK(!getLayoutPinned("/d/a.desktop"), "no layout.db: not pinned");
     seedLayoutPosition("/d/a.desktop", 10, 20);
-    CHECK(!getLayoutPinned("/d/a.desktop"), "entry without Pinned: not pinned");
+    CHECK(!getLayoutPinned("/d/a.desktop"), "entry without Draggable: not pinned");
 
     setLayoutPinned("/d/a.desktop", true, 10, 20);
     CHECK(getLayoutPinned("/d/a.desktop"), "pinned after setLayoutPinned(true)");
@@ -45,13 +45,19 @@ int main()
 
     setLayoutPinned("/d/a.desktop", false, 33, 44);
     CHECK(!getLayoutPinned("/d/a.desktop"), "unpinned");
-    CHECK(slurp(db).find("Pinned") != string::npos, "the other icon's pin is still in the file");
+    CHECK(slurp(db).find("Draggable") != string::npos, "the other icon's pin is still in the file");
     CHECK(getLayoutPosition("/d/a.desktop", x, y) && x == 33 && y == 44, "unpinning keeps the position");
 
     setLayoutPinned("/d/new file.txt", false, 5, 6);
-    CHECK(slurp(db).find("Pinned") == string::npos, "no Pinned key left once everything is unpinned");
+    CHECK(slurp(db).find("Draggable") == string::npos, "no Draggable key left once everything is unpinned");
     setLayoutPinned("/d/never-seen", false, 1, 2); // nothing to clear: must not create an entry
     CHECK(!getLayoutPosition("/d/never-seen", x, y), "unpinning an unknown icon creates nothing");
+
+    // an entry written by the first version ("Pinned: true") still counts
+    { ofstream o(db.c_str(), ios::app); o << "table /d/old.desktop\n  X: 1\n  Y: 2\n  Pinned: true\nend\n"; }
+    CHECK(getLayoutPinned("/d/old.desktop"), "legacy Pinned: true still read as pinned");
+    setLayoutPinned("/d/old.desktop", false, 1, 2);
+    CHECK(!getLayoutPinned("/d/old.desktop") && slurp(db).find("Pinned") == string::npos, "unpinning clears the legacy key too");
 
     cout << (fails == 0 ? "ALL PASSED" : "SOME FAILED") << " (" << fails << " failures)\n";
     return fails;

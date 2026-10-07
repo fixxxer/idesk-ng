@@ -146,7 +146,10 @@ bool getLayoutPinned(const string & path)
 
     Database db(layoutDbPath, false);
     Table & table = db.Query(path);
-    return table.isValid() && getUpper(table.Query("Pinned")) == "TRUE";
+    // "Pinned: true" is what the first version wrote; still honoured when read
+    return table.isValid() &&
+           (getUpper(table.Query("Draggable")) == "FALSE" ||
+            getUpper(table.Query("Pinned")) == "TRUE");
 }
 
 void setLayoutPinned(const string & path, bool pinned, int x, int y)
@@ -164,15 +167,16 @@ void setLayoutPinned(const string & path, bool pinned, int x, int y)
     if (!table.isValid())
         return;
 
-    for (size_t i = 0; i < table.Label.size(); i++)
-        if (table.Label[i] == "Pinned")
+    for (size_t i = 0; i < table.Label.size(); )
+        if (table.Label[i] == "Draggable" || table.Label[i] == "Pinned")
         {
             table.Label.erase(table.Label.begin() + i);
             table.Value.erase(table.Value.begin() + i);
-            break;
         }
+        else
+            i++;
     if (pinned)
-        table.Set("Pinned", "true");
+        table.Set("Draggable", "false");
 
     db.Write(layoutDbPath);
 }
