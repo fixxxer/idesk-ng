@@ -72,7 +72,6 @@ Database::Database( string  F, bool fallbackToDefaultRc ) : blankTable()
 
         {
         Table & T = AddTable( "Actions" );
-        T.Set("Lock", "control right doubleClk");
         T.Set("Reload", "middle doubleClk");
         T.Set("Drag", "left hold");
         T.Set("EndDrag", "left singleClk");

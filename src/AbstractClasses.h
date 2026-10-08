@@ -344,7 +344,6 @@ class AbstractActionConfig
 {
     protected:
         vector<Action *> executeActions;
-        Action * lock;
         Action * reload;
         Action * drag;
         Action * endDrag;
@@ -357,7 +356,6 @@ class AbstractActionConfig
 
         // returning an dynamically allocated pointer, so some other class must
         // do unallocation
-        virtual Action * getLock() { return lock; }
         virtual Action * getReload() { return reload; }
         virtual Action * getDrag() { return drag; }
         virtual Action * getEndDrag() { return endDrag; }

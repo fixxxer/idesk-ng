@@ -563,33 +563,6 @@ void DesktopConfig::loadIcons()
     }
 }
 
-void DesktopConfig::saveLockState(bool lockState)
-{
-    if (!wasLoaded) {
-        return;
-    }
-
-    Database db = Database(ideskrcFile, true);
-    Table & table = db.Query("Config");
-    
-    if (db.wasLoaded) {
-        if(table.isValid())
-        {
-            if (lockState)
-                table.Set("Locked", "true");
-            else
-                table.Set("Locked", "false");
-
-            db.Write();
-        }
-        else
-        {
-            cerr << "Incorrect config file\n";
-            return;
-        }
-    }
-}
-
 bool DesktopConfig::backgroundFile(const string & filename)
 {
     // Only filters out hidden dotfiles (this also naturally covers "."

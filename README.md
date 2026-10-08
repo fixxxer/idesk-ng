@@ -104,7 +104,6 @@ table Config
 end
 
 table Actions
-  Lock: control right doubleClk
   Reload: middle doubleClk
   Drag: left hold
   EndDrag: left singleClk
@@ -131,9 +130,9 @@ end
 
 - "ToolTip.CaptionOnHover" is a boolean (true/false) value. Setting it to true will make the icon's tip text appear when the mouse hovers over an icon. False is the default behavior.
 
-- "Locked" is boolean (true/false). Setting it to true disables the dragging movement of every icon. The Lock action (Control + double right click by default) toggles it and saves the new value here.
+- "Locked" is boolean (true/false). Setting it to true disables the dragging movement of every icon. It is only changed by editing this file.
 
-- "ContextMenu" is boolean (true/false), true by default. The right-click menu on an icon (Rename, Delete, Properties) is shown only for a plain right click, so actions bound to a modified click (like the default Lock) are not swallowed by it. Setting it to false removes the menu altogether -- meant for kiosk setups, where nobody should be able to rename, delete or edit icons. Combine it with "Locked: true" to also keep the icons in place.
+- "ContextMenu" is boolean (true/false), true by default. The right-click menu on an icon (Rename, Delete, Properties) is shown only for a plain right click, so actions bound to a modified click are not swallowed by it. Setting it to false removes the menu altogether -- meant for kiosk setups, where nobody should be able to rename, delete or edit icons. Combine it with "Locked: true" to also keep the icons in place.
 
 - Per icon, set from the Properties dialog (or by hand):
   - **Not draggable:** `Draggable: false`. In a .lnk it goes in the file itself; for a .desktop file or a plain file/folder it goes, as the very same line, in that icon's table of `layout.db`. An icon can be dragged only if neither "Locked" nor its own `Draggable: false` says otherwise.
@@ -268,7 +267,6 @@ Start idesk-ng with `--kiosk` (for example from a root-owned startup script) and
 
 - shows no context menu (no Rename / Delete / Properties),
 - keeps every icon locked, whatever `Locked:` says in `ideskrc`,
-- ignores the Lock gesture (Ctrl + double right click) so nobody can unlock them,
 - writes nothing to disk (no layout.db, no `.lnk` changes, no `ideskrc` changes).
 
 `--kiosk` survives a Reload (the middle double click re-launches with the same arguments).
@@ -278,7 +276,7 @@ Read-only configuration is also tolerated without `--kiosk`: if `ideskrc`, `layo
 The flag is a convenience, not a security boundary: whoever can edit the startup script can remove it. For a real kiosk also use the operating system:
 
 1. Run the session as an unprivileged user.
-2. Make `~/.ideskrc`, `~/.config/idesktop/` and `~/Desktop` owned by root and not writable by that user (`chown -R root:root`, `chmod -R a-w`).
+2. Make `~/.config/idesktop/` and `~/Desktop` owned by root and not writable by that user (`chown -R root:root`, `chmod -R a-w`).
 3. Give the user no terminal. Note that idesk-ng watches `~/Desktop` live, so any file somebody manages to drop there appears as an icon.
 
 ## Better Snap Explanation
@@ -309,9 +307,8 @@ The icon will snap to the middle of that box specified by snap width and snap he
 
 ## Action Configuration
 
-In the Action table 5 different actions can be configured.
+In the Action table 4 different actions can be configured.
 
-    Lock:       Disables icon dragging to prevent accidental movement.
     Reload:     Reloads all of the config options and gets a new background.
     Drag:       Puts the icon in drag mode. Icon follows cursor.
     EndDrag:    End the drag mode, icon will be positioned at the cursor.
@@ -328,7 +325,6 @@ The options for each command are as follows:
 Some examples:
 
     The default settings, should be self explanitory.
-        Lock: right doubleClk
         Reload: middle doubleClk
         Drag: left hold  <== Drag starts when left button is pressed.
         EndDrag: left singleClk <== Drag ends when left button is released.

@@ -34,7 +34,6 @@ table Config
 end
 
 table Actions
-  Lock: control right doubleClk
   Reload: middle doubleClk
   Drag: left hold
   EndDrag: left singleClk

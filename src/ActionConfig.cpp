@@ -41,7 +41,6 @@ ActionConfig::ActionConfig(Database db, string str) :
 
 ActionConfig::~ActionConfig()
 {
-    delete lock;
     delete reload;
     delete drag;
     delete endDrag;
@@ -58,9 +57,6 @@ void ActionConfig::setOptions(Table table)
     if (table.Query("Reload") != "")
         parseActionString(table.Query("Reload"), reload);
 
-    if (table.Query("Lock") != "")
-        parseActionString(table.Query("Lock"), lock);
-    
     if (table.Query("Drag") != "")
         parseActionString(table.Query("Drag"), drag);
 
@@ -87,7 +83,6 @@ void ActionConfig::setDefaults()
 {
     // Action(shift, control, alt, left, middle, right);
     reload = new Action(false, false, false, none, doubleClk, none);
-    lock = new Action(false, false, false, none, none, doubleClk);
     drag = new Action(false, false, false, hold, none, none);
     endDrag = new Action(false, false, false, singleClk, none, none);
 

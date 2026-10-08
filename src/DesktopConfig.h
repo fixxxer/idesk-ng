@@ -117,7 +117,6 @@ class DesktopConfig : public AbstractConfig
 	virtual string getCaptionTipPlacement() { return captionTipPlacement; }
 	virtual bool getCaptionTipOnHover() { return captionTipOnHover; }
 
-    virtual void saveLockState(bool lockState);
 
     virtual bool getBoldness() { return common->getBoldness(); }
 

@@ -1580,3 +1580,9 @@ the "all icons are locked" footer.
 Separately, `Database::Write()` no longer `_exit(1)`s when the file can't be opened for writing: it warns once and returns, and IconLayout tolerates an unreadable/unwritable layout.db. This is what lets a root-owned read-only config work without the flag.
 
 Tested in Xvfb as uid 65534 with a root-owned read-only home: without `--kiosk` the menu works, a dragged icon moves but isn't saved, one warning, clean SIGTERM; with `--kiosk` no menu, no drag, Lock gesture ignored, and an md5 of every config file is identical before and after. The flag is not a security boundary (see README).
+
+## Lock gesture and `~/.ideskrc` removed -- DONE
+
+The Lock action (Ctrl + double right click) is gone: it could only be used over an icon, and `Locked:` in ideskrc (or `--kiosk`) covers the real cases. Removed with it: `getLock()`, `toggleLock()`, `saveLockState()` and the `Lock` default; consequently idesk-ng no longer rewrites ideskrc on shutdown. A `Lock:` line left in an old ideskrc is simply ignored.
+
+`~/.ideskrc` is no longer read. Only `~/.config/idesktop/ideskrc` is, and if it is missing idesk-ng runs on embedded defaults (it does not create the file; `--install-ideskrc` does). So a user whose only config is the old file would silently lose it: at startup (not in kiosk mode) `migrateLegacyIdeskrc()` moves `~/.ideskrc` to the new place when that is missing, or, when both exist, renames the old one to `~/.ideskrc.bak` (never deleted).

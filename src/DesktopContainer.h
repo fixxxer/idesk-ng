@@ -48,7 +48,6 @@ class DesktopContainer : public AbstractContainer
         virtual void lockDesktop() { locked = true; }
         virtual void unlockDesktop() { locked = false; }
         virtual bool isLocked() { return locked; }
-        virtual void toggleLock() { locked = locked ? false : true; }
 
         virtual void setSnap(int xVal, int yVal) { snapWidth = xVal;
                                                    snapHeight = yVal; }
