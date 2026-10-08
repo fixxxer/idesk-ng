@@ -183,10 +183,20 @@ void Database::Write(const string file)
 }
 
 void Database::Write( ) {
+    // Kiosk mode never writes. And a file that can't be written (a read-only
+    // configuration, which is how a kiosk is meant to be locked down) is not a
+    // reason to stop: idesk-ng used to _exit(1) here, at startup or when closing.
+    if (kioskMode)
+        return;
+
     ofstream DbFile( File.c_str() );
     if (!DbFile) {
-        cerr << "Cannot write file: " << File << "\nExiting\n";
-        _exit(1);
+        static bool warned = false;
+        if (!warned)
+            cerr << "Cannot write file: " << File
+                 << " (read-only?); carrying on without saving\n";
+        warned = true;
+        return;
     }
 
     for(unsigned int i=0; i<Tables.size(); i++ ) {

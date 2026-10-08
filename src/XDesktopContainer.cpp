@@ -1604,7 +1604,7 @@ void XDesktopContainer::exeCurrentAction(XIcon * icon)
 		app->restartIdesk();
 	}
     
-    if (actionConfig->getLock()->isOccuring(currentAction))
+    if (!kioskMode && actionConfig->getLock()->isOccuring(currentAction))
     {
         toggleLock();
         DesktopConfig * dConfig = dynamic_cast<DesktopConfig *>(config);

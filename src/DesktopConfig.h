@@ -29,6 +29,7 @@
 #include "Database.h"
 #include "FreeDesktopIcon.h"
 #include "DesktopIconConfig.h"
+#include "Misc.h"
 #include <dirent.h>
 
 class DesktopConfig : public AbstractConfig
@@ -92,8 +93,8 @@ class DesktopConfig : public AbstractConfig
     virtual void setOptions(Table);
     virtual void setDesktopOnlyOptions(Table);
 
-    virtual bool getLocked() { return isLocked; }
-    virtual bool getContextMenuEnabled() { return contextMenuEnabled; }
+    virtual bool getLocked() { return isLocked || kioskMode; }
+    virtual bool getContextMenuEnabled() { return contextMenuEnabled && !kioskMode; }
     virtual bool getSnapState() { return snapOn; }
     virtual bool getStartSnapTop() { return startSnapTop; }
     virtual bool getStartSnapLeft() { return startSnapLeft; }

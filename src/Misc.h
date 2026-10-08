@@ -33,6 +33,11 @@
 
 using namespace std;
 
+// Set by "idesk --kiosk" (see Application::processArguments). In kiosk mode
+// nothing is ever written to disk, the right-click menu is off, every icon is
+// locked in place and the Lock gesture does nothing -- whatever ideskrc says.
+extern bool kioskMode;
+
 string getUpper(const string & str);
 //void Reboot();
 string itos(int i);

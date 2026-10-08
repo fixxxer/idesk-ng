@@ -262,6 +262,25 @@ end
      xterm 
 
 
+## Kiosk mode
+
+Start idesk-ng with `--kiosk` (for example from a root-owned startup script) and it:
+
+- shows no context menu (no Rename / Delete / Properties),
+- keeps every icon locked, whatever `Locked:` says in `ideskrc`,
+- ignores the Lock gesture (Ctrl + double right click) so nobody can unlock them,
+- writes nothing to disk (no layout.db, no `.lnk` changes, no `ideskrc` changes).
+
+`--kiosk` survives a Reload (the middle double click re-launches with the same arguments).
+
+Read-only configuration is also tolerated without `--kiosk`: if `ideskrc`, `layout.db` or the icon files can't be written, idesk-ng prints one warning and keeps running (an icon dragged by hand just isn't remembered), instead of exiting.
+
+The flag is a convenience, not a security boundary: whoever can edit the startup script can remove it. For a real kiosk also use the operating system:
+
+1. Run the session as an unprivileged user.
+2. Make `~/.ideskrc`, `~/.config/idesktop/` and `~/Desktop` owned by root and not writable by that user (`chown -R root:root`, `chmod -R a-w`).
+3. Give the user no terminal. Note that idesk-ng watches `~/Desktop` live, so any file somebody manages to drop there appears as an icon.
+
 ## Better Snap Explanation
 
 

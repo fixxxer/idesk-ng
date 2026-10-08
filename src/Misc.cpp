@@ -32,6 +32,8 @@
 
 extern char ** args;
 
+bool kioskMode = false;
+
 string getUpper(const string & str)
 {
     string work = str;

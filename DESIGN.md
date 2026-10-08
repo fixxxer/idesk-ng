@@ -1570,3 +1570,13 @@ symlinked launcher, each blocking the drag while a neighbour still moves; pins
 survive a restart; unpinning writes nothing to `layout.db`; Rename keeps a plain
 file's pin; `ContextMenu: false` shows no menu and `true` does; the Lock gesture;
 the "all icons are locked" footer.
+
+
+## Kiosk mode (`--kiosk`) and read-only tolerance -- DONE
+
+`--kiosk` (parsed in `App::processArguments`) sets the global `kioskMode` (Misc.h). Effects, each checked in one place:
+`DesktopConfig::getLocked()` returns true, `getContextMenuEnabled()` returns false, the Lock gesture branch in `XDesktopContainer` is skipped, and `Database::Write()`, `seedLayoutPosition()` and `setLayoutPinned()` do nothing. `restartIdesk()` re-execs with the same argv, so the flag persists across Reload.
+
+Separately, `Database::Write()` no longer `_exit(1)`s when the file can't be opened for writing: it warns once and returns, and IconLayout tolerates an unreadable/unwritable layout.db. This is what lets a root-owned read-only config work without the flag.
+
+Tested in Xvfb as uid 65534 with a root-owned read-only home: without `--kiosk` the menu works, a dragged icon moves but isn't saved, one warning, clean SIGTERM; with `--kiosk` no menu, no drag, Lock gesture ignored, and an md5 of every config file is identical before and after. The flag is not a security boundary (see README).

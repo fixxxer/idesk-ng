@@ -70,7 +70,11 @@ bool Application::processArguments()
                  << " one exists)\n"
                  << "  --migrate-to-desktop  convert .lnk icons to .desktop\n"
                  << "  --show-message TEXT   show a small popup with TEXT,"
-                 << " dismissed by any click/key\n";
+                 << " dismissed by any click/key\n"
+                 << "\nKiosk mode (given when starting idesk-ng, so it can't be undone"
+                 << " by editing a file in the user's home):\n"
+                 << "  --kiosk               no right-click menu, icons locked in place,"
+                 << " nothing written to disk\n";
             return false;
         }
     }
@@ -84,6 +88,15 @@ bool Application::processArguments()
     // flag.
     bool ranOneShotAction = false;
     bool oneShotFailed = false;
+
+    // not a one-shot: changes how the normal startup behaves (see Misc.h)
+    for (int i = 0; i < argc; i++)
+        if (string(argv[i]) == "--kiosk")
+        {
+            kioskMode = true;
+            cerr << "[Idesk] Kiosk mode: no context menu, icons locked, nothing written to disk\n";
+            break;
+        }
 
     for (int i = 0; i < argc; i++)
     {

@@ -25,6 +25,7 @@
 #include "Database.h"
 #include "Misc.h"
 #include <sys/stat.h>
+#include <unistd.h>
 #include <fstream>
 #include <cstdlib>
 #include <algorithm>
@@ -58,6 +59,12 @@ string getLayoutDbPath()
 
 void seedLayoutPosition(const string & path, int x, int y)
 {
+    // Kiosk mode never writes; and where layout.db can't be created or written
+    // (a read-only configuration) the position simply isn't remembered --
+    // checked before opening it, because Database exits on a file it can't open.
+    if (kioskMode)
+        return;
+
     string layoutDbPath = getLayoutDbPath();
 
     // Database's constructor either _exit(1)s or seeds unrelated
@@ -69,8 +76,12 @@ void seedLayoutPosition(const string & path, int x, int y)
     if (stat(layoutDbPath.c_str(), &st) != 0)
     {
         ofstream touch(layoutDbPath.c_str());
+        if (!touch)
+            return;
         touch.close();
     }
+    else if (access(layoutDbPath.c_str(), R_OK | W_OK) != 0)
+        return;
 
     Database db(layoutDbPath, false);
 
@@ -95,8 +106,8 @@ bool getLayoutPosition(const string & path, int & outX, int & outY)
     string layoutDbPath = getLayoutDbPath();
 
     struct stat st;
-    if (stat(layoutDbPath.c_str(), &st) != 0)
-        return false; // no layout DB yet -- nothing saved for anyone
+    if (stat(layoutDbPath.c_str(), &st) != 0 || access(layoutDbPath.c_str(), R_OK) != 0)
+        return false; // no (readable) layout DB -- nothing saved for anyone
 
     Database db(layoutDbPath, false);
     Table & table = db.Query(path);
@@ -154,6 +165,8 @@ bool getLayoutPinned(const string & path)
 
 void setLayoutPinned(const string & path, bool pinned, int x, int y)
 {
+    if (kioskMode)
+        return;
     if (pinned)
     {
         seedLayoutPosition(path, x, y); // makes sure the entry exists
