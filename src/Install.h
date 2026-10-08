@@ -40,6 +40,13 @@
 // persists what that path would have synthesized in memory anyway.
 // Skips (prints a message, returns true -- not an error) if a
 // ideskrc already exists at that path.
+// Moves the legacy ~/.idesktop/ to ~/.config/idesktop/ (or $XDG_CONFIG_HOME)
+// and ~/.ideskrc into it, so there is one place for everything. Never
+// deletes: entries that would overwrite something are left where they are,
+// and a ~/.ideskrc that can't take its place is set aside as ~/.ideskrc.bak.
+// Messages go to stderr. Called at startup, except in kiosk mode.
+void migrateLegacyConfig();
+
 bool installIdeskrc();
 
 // Adds a Trash icon (trash.desktop) to ~/.config/idesktop/: opens

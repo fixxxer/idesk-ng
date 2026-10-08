@@ -30,8 +30,83 @@
 #include <cstdlib>
 #include <unistd.h>
 #include <climits>
+#include <dirent.h>
 
 using namespace std;
+
+
+static bool pathExists(const string & p)
+{
+    struct stat st;
+    return lstat(p.c_str(), &st) == 0;
+}
+
+void migrateLegacyConfig()
+{
+    const char * h = getenv("HOME");
+    if (!h)
+        return;
+    string home(h);
+    const char * x = getenv("XDG_CONFIG_HOME");
+    string cfg = (x && *x) ? string(x) : home + "/.config";
+    string newDir = cfg + "/idesktop";
+    string oldDir = home + "/.idesktop";
+    string oldRc = home + "/.ideskrc";
+
+    struct stat st;
+    if (stat(oldDir.c_str(), &st) == 0 && S_ISDIR(st.st_mode) && oldDir != newDir)
+    {
+        if (!pathExists(newDir))
+        {
+            mkdir(cfg.c_str(), 0755); // may already exist
+            if (rename(oldDir.c_str(), newDir.c_str()) == 0)
+                cerr << "Moved " << oldDir << " to " << newDir << "\n";
+            else
+                cerr << "Warning: could not move " << oldDir << " to " << newDir << "\n";
+        }
+        else
+        {
+            // both exist: bring over what doesn't clash
+            DIR * d = opendir(oldDir.c_str());
+            int left = 0;
+            if (d)
+            {
+                struct dirent * e;
+                while ((e = readdir(d)) != NULL)
+                {
+                    string n = e->d_name;
+                    if (n == "." || n == "..")
+                        continue;
+                    if (pathExists(newDir + "/" + n) ||
+                        rename((oldDir + "/" + n).c_str(), (newDir + "/" + n).c_str()) != 0)
+                        left++;
+                }
+                closedir(d);
+            }
+            if (left == 0)
+                rmdir(oldDir.c_str()); // empty now, nothing lost
+            else
+                cerr << "Warning: " << left << " entries of " << oldDir
+                     << " were not moved to " << newDir << " (already there)\n";
+        }
+    }
+
+    if (pathExists(oldRc))
+    {
+        string newRc = newDir + "/ideskrc";
+        struct stat ds;
+        bool haveDir = stat(newDir.c_str(), &ds) == 0 && S_ISDIR(ds.st_mode);
+        if (haveDir && !pathExists(newRc))
+        {
+            if (rename(oldRc.c_str(), newRc.c_str()) == 0)
+                cerr << "Moved " << oldRc << " to " << newRc << "\n";
+        }
+        else if (haveDir && rename(oldRc.c_str(), (oldRc + ".bak").c_str()) == 0)
+            cerr << oldRc << " is no longer used; renamed to " << oldRc << ".bak\n";
+        else if (!haveDir)
+            cerr << "Warning: " << oldRc << " is no longer read; run idesk-ng --install-ideskrc and copy it to " << newRc << "\n";
+    }
+}
 
 // Deliberately NOT the same as Migrate.cpp/IconLayout.cpp's version of
 // this function, despite the near-identical name: those exist to find

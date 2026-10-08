@@ -1586,3 +1586,7 @@ Tested in Xvfb as uid 65534 with a root-owned read-only home: without `--kiosk` 
 The Lock action (Ctrl + double right click) is gone: it could only be used over an icon, and `Locked:` in ideskrc (or `--kiosk`) covers the real cases. Removed with it: `getLock()`, `toggleLock()`, `saveLockState()` and the `Lock` default; consequently idesk-ng no longer rewrites ideskrc on shutdown. A `Lock:` line left in an old ideskrc is simply ignored.
 
 `~/.ideskrc` is no longer read. Only `~/.config/idesktop/ideskrc` is, and if it is missing idesk-ng runs on embedded defaults (it does not create the file; `--install-ideskrc` does). So a user whose only config is the old file would silently lose it: at startup (not in kiosk mode) `migrateLegacyIdeskrc()` moves `~/.ideskrc` to the new place when that is missing, or, when both exist, renames the old one to `~/.ideskrc.bak` (never deleted).
+
+## One configuration directory -- DONE
+
+`migrateLegacyConfig()` (Install.cpp) runs at startup, except in kiosk mode: `~/.idesktop` is renamed to `~/.config/idesktop` (or `$XDG_CONFIG_HOME/idesktop`); if both exist, entries that don't clash are moved and the old directory is removed only when left empty; then `~/.ideskrc` goes to `ideskrc` inside it, or to `~/.ideskrc.bak` if one is already there. It replaces the earlier ideskrc-only migration in `configure()`. The scan code still falls back to `~/.idesktop` when the new directory is missing (kiosk, or a failed move). `~/.config/idesktop` is the XDG Base Directory location; `~/.idesktop` dates from the 2002 original.

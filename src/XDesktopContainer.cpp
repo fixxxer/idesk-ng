@@ -32,6 +32,7 @@
 #include "TextInput.h"
 #include "PropertiesDialog.h"
 #include "IconEdit.h"
+#include "Install.h"
 #include "XImlib2Image.h"
 #include "XImlib2Caption.h"
 
@@ -203,33 +204,13 @@ inline bool fileExists (const std::string& name) {
   return (stat (name.c_str(), &buffer) == 0); 
 }
 
-// ~/.ideskrc (the original idesk location) is no longer read. So that nobody
-// silently loses settings, move it to the current place when that is missing,
-// or set it aside as ~/.ideskrc.bak when both exist. Never deletes it.
-static void migrateLegacyIdeskrc(const string & home, const string & current)
-{
-    string legacy = home + "/.ideskrc";
-    if (kioskMode || !fileExists(legacy))
-        return;
-    if (!fileExists(current))
-    {
-        // Not creating ~/.config/idesktop here: its mere existence switches
-        // the icon scan away from the legacy ~/.idesktop.
-        if (rename(legacy.c_str(), current.c_str()) == 0)
-            cerr << "Moved " << legacy << " to " << current << "\n";
-        else
-            cerr << "Warning: " << legacy << " is no longer read and could not be moved to " << current << "\n";
-    }
-    else if (rename(legacy.c_str(), (legacy + ".bak").c_str()) == 0)
-        cerr << legacy << " is no longer used; renamed to " << legacy << ".bak\n";
-}
-
 void XDesktopContainer::configure()
 {
     //get the user's config file
     string homeDirectory = getenv("HOME");
     string ideskrcFile = homeDirectory + "/.config/idesktop/ideskrc";
-    migrateLegacyIdeskrc(homeDirectory, ideskrcFile);
+    if (!kioskMode)
+        migrateLegacyConfig();
 
     Database db(ideskrcFile, true);
     DesktopConfig * dConfig = new DesktopConfig(db, ideskrcFile);

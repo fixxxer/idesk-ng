@@ -97,7 +97,7 @@ table Config
   ToolTip.CaptionOnHover: true
   ToolTip.CaptionPlacement: Right
   Background.Delay: 0
-  Background.Source: /home/aavelar/.idesktop/icons
+  Background.Source: /home/aavelar/.config/idesktop/icons
   Background.File: /usr/local/share/gfilerunner/themes/default/search.png
   Background.Mode: Mirror
   Background.Color: #C2CCFF
@@ -279,6 +279,10 @@ The flag is a convenience, not a security boundary: whoever can edit the startup
 2. Make `~/.config/idesktop/` and `~/Desktop` owned by root and not writable by that user (`chown -R root:root`, `chmod -R a-w`).
 3. Give the user no terminal. Note that idesk-ng watches `~/Desktop` live, so any file somebody manages to drop there appears as an icon.
 
+## Where the configuration lives
+
+Everything is in `~/.config/idesktop/` (or `$XDG_CONFIG_HOME/idesktop/`): `ideskrc`, the `.lnk` icons and `layout.db`. The old locations `~/.idesktop/` and `~/.ideskrc` are no longer used: at startup (not in `--kiosk` mode) idesk-ng moves them there. Nothing is deleted; whatever cannot be moved without overwriting something is left in place with a warning, and an unneeded `~/.ideskrc` becomes `~/.ideskrc.bak`. Only `--install-ideskrc` and `--install-trash-icon` create the directory on a fresh system.
+
 ## Better Snap Explanation
 
 
@@ -364,7 +368,7 @@ table Icon
   Caption: Home
   CaptionTip: This is my home
   Command: nautilus /home/you
-  Icon: /home/you/.idesktop/home.png
+  Icon: /home/you/.config/idesktop/home.png
   Width: 600
   Height: 700
   X: 680
