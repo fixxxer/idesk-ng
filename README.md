@@ -279,9 +279,18 @@ The flag is a convenience, not a security boundary: whoever can edit the startup
 2. Make `~/.config/idesktop/` and `~/Desktop` owned by root and not writable by that user (`chown -R root:root`, `chmod -R a-w`).
 3. Give the user no terminal. Note that idesk-ng watches `~/Desktop` live, so any file somebody manages to drop there appears as an icon.
 
-## Where the configuration lives
+### A complete recipe
 
-Everything is in `~/.config/idesktop/` (or `$XDG_CONFIG_HOME/idesktop/`): `ideskrc`, the `.lnk` icons and `layout.db`. The old locations `~/.idesktop/` and `~/.ideskrc` are no longer used: at startup (not in `--kiosk` mode) idesk-ng moves them there. Nothing is deleted; whatever cannot be moved without overwriting something is left in place with a warning, and an unneeded `~/.ideskrc` becomes `~/.ideskrc.bak`. Only `--install-ideskrc` and `--install-trash-icon` create the directory on a fresh system.
+`examples/kiosk/` has two scripts to copy and adapt:
+
+- `setup-kiosk.sh <user> <folder>` (run once, as root) installs your `ideskrc` and `.lnk` icons into the user's `~/.config/idesktop/` and makes that, `~/Desktop` and the home itself root-owned and read-only for the user.
+- `idesk-kiosk.sh` is the startup command: it runs `idesk-ng --kiosk` in a loop, so if the process ever dies the icons come back two seconds later. Install it root-owned (`install -m 755`) and call it from the session startup of the kiosk user.
+
+Things to know:
+
+- A read-only home means the session can't write its own files (`.Xauthority`, caches, a browser profile). Give those a writable place: a tmpfs mounted on a subfolder, or `XAUTHORITY`/`XDG_CACHE_HOME` pointed at `/tmp` or `/run/user/<uid>`.
+- To change the icons later, edit the master folder and run `setup-kiosk.sh` again (as root), then restart the session or middle double click on an icon (Reload).
+- To check it from the kiosk user: `touch ~/Desktop/x` must fail, a right click must show no menu, and an icon must not move when dragged.
 
 ## Better Snap Explanation
 

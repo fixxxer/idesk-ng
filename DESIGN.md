@@ -1590,3 +1590,7 @@ The Lock action (Ctrl + double right click) is gone: it could only be used over 
 ## One configuration directory -- DONE
 
 `migrateLegacyConfig()` (Install.cpp) runs at startup, except in kiosk mode: `~/.idesktop` is renamed to `~/.config/idesktop` (or `$XDG_CONFIG_HOME/idesktop`); if both exist, entries that don't clash are moved and the old directory is removed only when left empty; then `~/.ideskrc` goes to `ideskrc` inside it, or to `~/.ideskrc.bak` if one is already there. It replaces the earlier ideskrc-only migration in `configure()`. The scan code still falls back to `~/.idesktop` when the new directory is missing (kiosk, or a failed move). `~/.config/idesktop` is the XDG Base Directory location; `~/.idesktop` dates from the 2002 original.
+
+## Valgrind pass on the final build; kiosk recipe -- DONE
+
+Valgrind (3.22, amd64, Xvfb) over a session with a .lnk, a .desktop and a plain file: opening and cancelling the menu, the Properties dialog, a drag, a file created and removed in ~/Desktop, then SIGTERM. No invalid reads/writes. "Definitely lost" (6.6 KB in 26 blocks) is all fontconfig initialisation; the 16 "uninitialised value" reports are all inside librsvg. Nothing from idesk-ng's own code. Recipe in `examples/kiosk/` and the README.
