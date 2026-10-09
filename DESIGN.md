@@ -1360,10 +1360,10 @@ suite re-run with no regression.
 **Decisions (from the owner).** Only the XDG Desktop directory is watched, not
 `~/.config/idesktop`; only additions and removals are required, plus a `touch`
 (or an edit) to re-read a `.desktop`/`.lnk`; and it must cost no CPU while
-nothing happens. A Delete does *not* keep its `layout.db` entry: a restored icon
-gets a free slot rather than its old place. Recovering a deleted icon is
-unusual, and keeping entries for files that mostly never return would only pile
-up junk.
+nothing happens. A Delete does *not* keep its `layout.db` entry. (This first
+round also decided that a restored icon would get a free slot rather than its old
+place; that was reversed later -- see "Four follow-ups to the watcher" -- by
+keeping the place under a separate, bounded `trash:` entry.)
 
 **Mechanism.** One `inotify` descriptor (`IN_CLOEXEC`, so launched programs do
 not inherit it) on the Desktop directory, added to the `select()` the event loop
@@ -1420,14 +1420,13 @@ image -- and not with the same icon at x=300. Only the part of the caption that
 is already off-screen is affected. Left alone.
 
 **Limits, on purpose.**
-- A file *renamed in a file manager* is, for idesk-ng, one icon gone and another
-  new: it comes back in a free slot, not where it was. (Matching the two
-  `inotify` move events by cookie would fix that.)
+- ~~A file renamed in a file manager is one icon gone and another new.~~ Fixed:
+  see "Four follow-ups to the watcher".
 - `~/.config/idesktop` is not watched: idesk-ng writes there itself all the time
   (`layout.db`, a `.lnk` after every drag), and `ideskrc` changes would be a
   config reload, a different feature.
-- A Desktop directory created *after* idesk-ng started is not picked up until
-  the next start.
+- ~~A Desktop directory created after idesk-ng started is not picked up.~~ Fixed:
+  see "Four follow-ups to the watcher".
 - Once `layout.db` knows a file, an edited `X-Idesk-X`/`X-Idesk-Y` no longer moves
   it (as at startup: `layout.db` wins).
 - `inotify` does not report changes made by other machines on network file
@@ -1490,7 +1489,8 @@ picker (the Icon field takes a path or a theme name typed by hand).
 
 ### Properties, second round: tooltip text, a per-icon tooltip switch, mouse cursor
 
-- **Tooltip text** is a fourth field: `ToolTip.Caption:` in a `.lnk`, `Comment=` in
+- **Tooltip text** is a fourth field: `Comment:` in a `.lnk` (first version:
+  `ToolTip.Caption:`, see "Four follow-ups to the watcher"), `Comment=` in
   a `.desktop` (the same key every launcher uses for its description). An empty
   text makes the tooltip show the icon's name -- that is how `XImlib2ToolTip` always
   behaved -- and the footer says so.
@@ -1555,8 +1555,8 @@ differs from the default. A pin follows a plain file through Rename. If only the
 pin changed nothing is redrawn and the watcher is told (`recordMtime`) so that
 writing a `.lnk` does not make it refresh the icon a moment later. Rolling back
 on a failed write restores the pin too. A file renamed *outside* idesk-ng is
-seen as one that left and one that arrived, so its pin is lost with its position
-(as for any position -- see "Files that appear in or leave ~/Desktop").
+seen as one that left and one that arrived, so its pin was lost with its position
+(no longer: the pin now travels with the icon, see "Four follow-ups to the watcher").
 
 **Kiosk: `ContextMenu: false`** in the `Config` table of `ideskrc` (default true)
 removes the right-click menu: no Rename, Delete or Properties. A plain right click
@@ -1594,3 +1594,114 @@ The Lock action (Ctrl + double right click) is gone: it could only be used over 
 ## Valgrind pass on the final build; kiosk recipe -- DONE
 
 Valgrind (3.22, amd64, Xvfb) over a session with a .lnk, a .desktop and a plain file: opening and cancelling the menu, the Properties dialog, a drag, a file created and removed in ~/Desktop, then SIGTERM. No invalid reads/writes. "Definitely lost" (6.6 KB in 26 blocks) is all fontconfig initialisation; the 16 "uninitialised value" reports are all inside librsvg. Nothing from idesk-ng's own code. Recipe in `examples/kiosk/` and the README.
+
+## Four follow-ups to the watcher -- DONE
+
+Proposed earlier by Claude, asked for by the owner on 2026-10-08, in this order.
+
+### `Comment:` is the tooltip text of a `.lnk`
+
+A `.lnk` now keeps its tooltip text under `Comment:`, the same word a `.desktop`
+uses, so that Properties edits one key whatever the icon is (`Edit e4` in
+`XDesktopContainer::propertiesIcon()` is `"Comment"` for both). The first versions'
+`ToolTip.Caption:` is still read: `lnkTooltipText()` (IconEdit.cpp) returns `Comment`
+or, when that is empty, `ToolTip.Caption`; `DesktopIconConfig`, `Migrate.cpp`
+(`--migrate-to-desktop`) and Properties all go through it. Writing `Comment` through
+`setLnkKey()` also drops `ToolTip.Caption` from the table -- otherwise clearing the
+text in Properties would have brought the old one back, since an empty `Comment`
+falls through to it. A file is therefore converted the first time its tooltip is
+saved, and never otherwise (reading does not write). `ToolTip.Caption` stays what
+the internal `.desktop` table calls the same thing (`FreeDesktopIcon`), which the
+fall-back covers.
+
+Checked in IconEditTest (old key read, new key read, new wins, writing drops the
+old, clearing does not resurrect it, UTF-8) and in Xvfb: Properties shows the text
+of both spellings, saving writes `Comment:` only, an emptied tooltip stays empty
+after reopening, and the hover tooltip shows the text with either key.
+
+### A file renamed outside idesk-ng keeps its place and its pin
+
+A rename in a file manager or with `mv` arrives as `IN_MOVED_FROM` and `IN_MOVED_TO`
+sharing a cookie. `pollDesktopWatch()` pairs them (`pendingMoveFrom`, then
+`noteRename()`, which folds a chain a->b->c made inside one synchronisation into
+a->c and drops a->b->a). `syncDesktop()` then, for each pair whose old file is gone,
+whose new file exists, and whose new name is not an icon already on screen, takes
+the *live* icon's X/Y and pin and gives them to the config of the new file before
+its icon is built; it also writes them to `layout.db` under the new path. The old
+`layout.db` entry is removed by the "gone" branch as before.
+
+Two choices worth knowing. The place comes from the icon on screen, not from
+`layout.db`, so it also survives where `layout.db` cannot be written (kiosk,
+read-only home): the icon stays where it was for the session, and a restart there
+starts fresh as before. And a rename *onto* a file that is itself an icon is
+treated as a replacement, not a move: the replaced icon keeps its place and the
+other one goes. A `.lnk` needs none of this (its place is inside the file, which a
+rename keeps); an editor's save-by-rename over an icon (`.x.tmp` -> `x.desktop`) is
+a pair whose new name is shown, so it is left to the modification-time refresh as
+before.
+
+### A Desktop directory created after idesk-ng started
+
+`DesktopConfig` keeps the Desktop directory's name even when it does not exist
+(`getDesktopDir()`); `desktopWatchDir` still means "exists now". When the
+directory is missing, `armDesktopWatch()` watches the nearest ancestor that exists,
+for the creation of the next name down; each time that name appears it is called
+again and moves one level closer, until the directory itself is watched and a
+synchronisation shows what is in it. It is also what runs when the Desktop
+directory is deleted or renamed away (`IN_DELETE_SELF`/`IN_MOVE_SELF`): the icons go,
+and the watch goes back to waiting. Cost while waiting: one more `inotify` watch,
+and events in the ancestor are ignored unless they name the one directory being
+waited for. `XDG_DESKTOP_DIR` or `user-dirs.dirs` pointing several levels down works,
+created step by step or with `mkdir -p`.
+
+Limit: a Desktop that is a dangling symbolic link whose target is created later is
+not noticed (nothing happens in the ancestor).
+
+### An icon restored from the Trash goes back where it was
+
+The earlier decision (a Delete forgets the place, see above) is reversed, with the
+junk it was afraid of kept in check. Before the `layout.db` entry of an icon
+that keeps its place there (`.desktop`, plain file or folder) is removed,
+`rememberTrashedLayout()` stores X, Y, the pin and a timestamp under the title
+`trash:<path>` in the same file (an icon's title is an absolute path, so the two
+cannot clash). It is called from Delete, and from `syncDesktop()` when a file
+disappears *and* the home Trash holds a `.trashinfo` whose `Path=` is that file --
+which is how a file manager's "Move to Trash" is told apart from `rm`. When a file
+becomes an icon (startup scan or watcher), `createIconConfig()` first calls
+`adoptTrashedLayout()`: if there is a remembered entry, the path has no entry of
+its own, and the Trash no longer holds that path, the remembered place and pin
+become the icon's own entry. If the path already has its own entry the remembered
+one is discarded (something else took the place); if the Trash still holds the path
+the file that appeared is not the one that was trashed, and the memory is kept.
+
+Bounds: entries older than 30 days are dropped whenever another is added, and at
+most 200 are kept (the oldest go first). Kiosk mode neither remembers nor adopts.
+A `rm` forgets, as before, so a package that reinstalls a `.desktop` at the same
+path does not inherit a place.
+
+Limits: only the home Trash is consulted for external deletions (a Desktop on
+another filesystem trashes into that filesystem's `.Trash-<uid>`; Delete from
+idesk-ng's own menu does not depend on this, it knows it trashed). Two files of the
+same name trashed at different times: restoring one while the other is still in the
+Trash is not recognised, and the icon takes a free slot. A restore is recognised
+when the `.trashinfo` is gone within the 400 ms the watcher waits; GIO and GVFS
+remove it in the same operation.
+
+### Verified
+
+Xvfb + xdotool. The late-creation, rename and Trash scenarios were also run against
+the previous binary (HEAD 38aee55) to see them fail: late creation (empty, then files; removed and recreated; moved away
+and back; two levels down step by step and with `mkdir -p`; a burst of six files);
+renames (plain, pinned `.desktop` -- the drag is still refused, a control icon still
+moves --, chain, onto a shown icon, `.lnk`, editor-style save, hidden name and back);
+Delete from the menu then restore, `gio trash` of a pinned `.desktop` then restore,
+`rm` then re-create (not the old place), same name while the old is in the Trash,
+restore with another name, restore while idesk-ng was not running, kiosk (`layout.db`
+byte-identical). The previous binary fails each of those that is about the new
+behaviour; the `rm`, same-name and kiosk checks are there to show nothing else
+changed, and pass on both. `gio trash --restore` could not be used (it needs GVFS's `trash:` backend);
+the restore was done as a file manager does it on a local disk, a rename back and the
+`.trashinfo` removed. Unit tests: IconEditTest 46, IconLayoutTest 40. Valgrind over
+a session running all of the above and Properties: no invalid reads or writes, 11
+"uninitialised value" reports all inside librsvg (while loading an SVG), the usual
+26 blocks of fontconfig initialisation.

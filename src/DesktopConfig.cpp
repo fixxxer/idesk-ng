@@ -290,6 +290,7 @@ DesktopIconConfig * DesktopConfig::createIconConfig(const string & filename,
 					// takes priority over whatever the .desktop itself says --
 					// arrangeIcons() only auto-places an icon still at (0,0).
 					int savedX, savedY;
+					adoptTrashedLayout(filename); // back from the Trash: its old place
 					if (getLayoutPosition(filename, savedX, savedY))
 					{
 						fdi.Set("X", itos(savedX));
@@ -328,6 +329,7 @@ DesktopIconConfig * DesktopConfig::createIconConfig(const string & filename,
 				// .lnk or .desktop, so it reaches this branch too.
 				GenericFileIcon gfi(filename);
 				int savedX, savedY;
+				adoptTrashedLayout(filename); // back from the Trash: its old place
 				if (getLayoutPosition(filename, savedX, savedY))
 				{
 					gfi.Set("X", itos(savedX));
@@ -558,6 +560,7 @@ void DesktopConfig::loadIcons()
     {
         scanIconDirectory(xdgDesktopDir, /* warnOnUnrecognized = */ false, "",
                            autoIconizeDesktop);
+        desktopDir = xdgDesktopDir;
         if (stat(xdgDesktopDir.c_str(), &dirStat) == 0 && S_ISDIR(dirStat.st_mode))
             desktopWatchDir = xdgDesktopDir;
     }

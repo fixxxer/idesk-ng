@@ -59,10 +59,15 @@ class DesktopConfig : public AbstractConfig
     // its own (empty when it is the same as iDesk-NG's directory, or absent).
     // This is the one the container watches for files appearing and going away.
     string desktopWatchDir;
+    // The same directory by name, whether or not it exists yet (empty only when
+    // it is iDesk-NG's own directory): what the container waits for if the
+    // directory is created after idesk-ng has started.
+    string desktopDir;
 
     virtual void loadIcons();
     public:
         const string & getDesktopWatchDir() { return desktopWatchDir; }
+        const string & getDesktopDir() { return desktopDir; }
         // Config for one file of the Desktop directory, by the same rules the
         // startup scan applies to it; NULL if the file isn't (or isn't any
         // longer) shown as an icon. The caller hands the result back through

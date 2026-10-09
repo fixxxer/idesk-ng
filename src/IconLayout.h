@@ -83,4 +83,33 @@ bool getLayoutPinned(const string & path);
 // entry yet, one is created with the given position (the icon's current one).
 void setLayoutPinned(const string & path, bool pinned, int x, int y);
 
+// ---- Position of an icon that was sent to the Trash --------------------
+//
+// Delete (and a file manager's "Move to Trash") takes an icon's entry out of
+// layout.db, so that whatever later reuses the path does not inherit it. To
+// let a file restored from the Trash come back where it was, the position and
+// the pin are first kept under the title "trash:<path>" in the same file --
+// it can never clash with an icon, whose title is an absolute path. An entry
+// is dropped when it is used, when it is 30 days old, or when there are more
+// than 200 (the oldest go first).
+
+// Remembers the position (and pin) of the icon at `path`, which has just been
+// sent to the Trash. Does nothing in kiosk mode or where layout.db can't be
+// written.
+void rememberTrashedLayout(const string & path, int x, int y, bool pinned);
+
+// If `path` was remembered and has no entry of its own, moves the remembered
+// position (and pin) into the entry of `path` and returns true: the file has
+// come back from the Trash. Returns false when nothing was remembered, when
+// `path` already has a position of its own (the remembered one is then
+// discarded: something else has taken the place), or while the Trash still
+// holds a file from `path` (what is there is then not the one that was
+// trashed).
+bool adoptTrashedLayout(const string & path);
+
+// Whether the home Trash holds a file that came from `path` (its .trashinfo
+// says Path=<path>). Used to tell a file sent to the Trash from one deleted
+// for good. Only the home Trash is looked at.
+bool isInTrash(const string & path);
+
 #endif

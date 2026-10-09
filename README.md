@@ -402,6 +402,17 @@ end
 
 `Comment:` is the text of the icon's tooltip (see "ToolTip.CaptionOnHover" above); older files that say `ToolTip.Caption:` are still read.
 
+### Icons from `~/Desktop`
+
+Besides `~/.config/idesktop`, idesk-ng shows what is in your XDG Desktop directory (`~/Desktop`, or whatever `user-dirs.dirs` says): `.desktop` launchers, `.lnk` files and plain files and folders (unless `Desktop.AutoIcons: false` is set in `ideskrc`). That directory is watched while idesk-ng runs, so no restart is needed when:
+
+- a file appears, goes away or is edited;
+- the directory itself is created after idesk-ng started (or removed and created again);
+- a file is renamed in a file manager or with `mv` -- it keeps its place and, if it was pinned, its pin;
+- a file is restored from the Trash -- it goes back where it was (idesk-ng remembers the place of an icon sent to the Trash for 30 days, up to 200 icons; a file deleted for good is forgotten at once).
+
+Positions of `.desktop` files and plain files live in `~/.config/idesktop/layout.db`. In `--kiosk` mode nothing is written, so these places are not remembered across restarts.
+
 ## Default Usage
 
 - Double click with the first mouse button will run the command.

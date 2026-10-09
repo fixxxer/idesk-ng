@@ -79,7 +79,7 @@ static string resolveSelfPathForMessage()
     return string(buf);
 }
 
-XDesktopContainer::XDesktopContainer(AbstractApp * a) : DesktopContainer(a), timer(NULL), watchFd(-1), watchWd(-1), syncPending(false), syncFirstMs(0), syncLastMs(0)
+XDesktopContainer::XDesktopContainer(AbstractApp * a) : DesktopContainer(a), timer(NULL), watchFd(-1), watchWd(-1), waitWd(-1), targetWatched(false), syncPending(false), syncFirstMs(0), syncLastMs(0)
 {
     xcontainer=this; 	
     initXWin();
@@ -738,6 +738,12 @@ void XDesktopContainer::deleteIcon(XIcon * icon)
 		return;
 	}
 
+	// Restore from the Trash should put the icon back where it was: keep its
+	// place (and pin) under "trash:<path>", which the layout entry below is not.
+	// A .lnk keeps its own place inside the file, which the Trash keeps too.
+	if (dIconConfig->getOrigin() == DesktopIconConfig::ORIGIN_LAYOUT_DB)
+		rememberTrashedLayout(path, icon->getX(), icon->getY(), !dIconConfig->isDraggable());
+
 	// Without this, a future icon that happens to reuse this exact
 	// path (a package reinstall, recreating an icon with the same
 	// name) would silently inherit this deleted icon's old position.
@@ -812,9 +818,9 @@ static bool isDirectChildOf(const string & path, const string & dir)
 void XDesktopContainer::startDesktopWatch()
 {
 	DesktopConfig * dConfig = dynamic_cast<DesktopConfig *>(config);
-	if (!dConfig || dConfig->getDesktopWatchDir().empty())
+	if (!dConfig || dConfig->getDesktopDir().empty())
 		return;
-	watchDir = dConfig->getDesktopWatchDir();
+	watchDir = dConfig->getDesktopDir();
 
 	watchFd = inotify_init1(IN_NONBLOCK | IN_CLOEXEC); // CLOEXEC: launched programs don't inherit it
 	if (watchFd < 0)
@@ -822,12 +828,12 @@ void XDesktopContainer::startDesktopWatch()
 		cerr << "Not watching " << watchDir << ": " << strerror(errno) << "\n";
 		return;
 	}
-	watchWd = inotify_add_watch(watchFd, watchDir.c_str(),
-	                            IN_CREATE | IN_DELETE | IN_MOVED_FROM | IN_MOVED_TO |
-	                            IN_CLOSE_WRITE | IN_ATTRIB);
-	if (watchWd < 0)
+
+	// the directory itself, or -- if it doesn't exist yet -- what it will be
+	// created in
+	armDesktopWatch();
+	if (watchWd < 0 && waitWd < 0)
 	{
-		cerr << "Not watching " << watchDir << ": " << strerror(errno) << "\n";
 		close(watchFd);
 		watchFd = -1;
 		return;
@@ -844,11 +850,86 @@ void XDesktopContainer::startDesktopWatch()
 	}
 }
 
+// Watches the Desktop directory when it exists. When it doesn't -- created
+// later, by xdg-user-dirs on a first login, a script, or the person -- watches
+// the nearest directory above it that does, for the next level down being
+// created; each time that happens this is called again and moves one level
+// closer. The same call puts the watch back to waiting when the directory is
+// removed or moved away.
+void XDesktopContainer::armDesktopWatch()
+{
+	if (watchWd >= 0)
+		inotify_rm_watch(watchFd, watchWd);
+	if (waitWd >= 0)
+		inotify_rm_watch(watchFd, waitWd);
+	watchWd = waitWd = -1;
+	targetWatched = false;
+	waitName.clear();
+
+	struct stat st;
+	if (stat(watchDir.c_str(), &st) == 0 && S_ISDIR(st.st_mode))
+	{
+		watchWd = inotify_add_watch(watchFd, watchDir.c_str(),
+		                            IN_CREATE | IN_DELETE | IN_MOVED_FROM | IN_MOVED_TO |
+		                            IN_CLOSE_WRITE | IN_ATTRIB | IN_DELETE_SELF | IN_MOVE_SELF);
+		if (watchWd >= 0)
+		{
+			targetWatched = true;
+			return;
+		}
+		cerr << "Not watching " << watchDir << ": " << strerror(errno) << "\n";
+		return;
+	}
+
+	// walk up to the first directory that exists, remembering the name below it
+	string below = watchDir;
+	while (below.size() > 1 && below[below.size() - 1] == '/')
+		below.erase(below.size() - 1);
+	string above = below;
+	for (;;)
+	{
+		size_t slash = above.find_last_of('/');
+		if (slash == string::npos || slash == 0)
+		{
+			above = "/";
+			break;
+		}
+		below = above;
+		above = above.substr(0, slash);
+		if (stat(above.c_str(), &st) == 0 && S_ISDIR(st.st_mode))
+			break;
+	}
+	size_t slash = below.find_last_of('/');
+	waitName = (slash == string::npos) ? below : below.substr(slash + 1);
+
+	waitWd = inotify_add_watch(watchFd, above.c_str(),
+	                           IN_CREATE | IN_MOVED_TO | IN_DELETE_SELF | IN_MOVE_SELF);
+	if (waitWd < 0)
+		cerr << "Not watching for " << watchDir << ": " << strerror(errno) << "\n";
+}
+
+// Two move events with the same cookie are one rename. Remembers it as
+// (old, new), folding a chain a->b->c made before the next synchronisation
+// into a->c (and dropping a->b->a).
+void XDesktopContainer::noteRename(const string & from, const string & to)
+{
+	for (size_t i = 0; i < renamedFiles.size(); i++)
+		if (renamedFiles[i].second == from)
+		{
+			renamedFiles[i].second = to;
+			if (renamedFiles[i].first == to)
+				renamedFiles.erase(renamedFiles.begin() + i);
+			return;
+		}
+	renamedFiles.push_back(make_pair(from, to));
+}
+
 void XDesktopContainer::stopDesktopWatch()
 {
 	if (watchFd >= 0)
 		close(watchFd); // also drops the watch
-	watchFd = watchWd = -1;
+	watchFd = watchWd = waitWd = -1;
+	targetWatched = false;
 }
 
 // Remembers when a .desktop/.lnk in the Desktop directory was last read, so a
@@ -886,9 +967,57 @@ void XDesktopContainer::pollDesktopWatch()
 			p += sizeof(struct inotify_event) + ev->len;
 
 			bool relevant = (ev->mask & IN_Q_OVERFLOW) != 0;
-			if (ev->len > 0)
+
+			if (ev->mask & IN_Q_OVERFLOW)
+			{
+				// events were lost: what is there now is all that can be trusted
+				if (!targetWatched)
+				{
+					armDesktopWatch();
+					relevant = targetWatched;
+				}
+			}
+			else if (ev->wd == waitWd && waitWd >= 0)
+			{
+				// waiting for the Desktop directory to appear: only the name on
+				// the way to it matters, or the directory being watched going away
+				if ((ev->mask & (IN_DELETE_SELF | IN_MOVE_SELF)) ||
+				    (ev->len > 0 && waitName == ev->name))
+				{
+					armDesktopWatch();
+					relevant = targetWatched; // it exists now: show what is in it
+				}
+			}
+			else if (ev->wd != watchWd || watchWd < 0)
+			{
+				; // an event from a watch already dropped
+			}
+			else if (ev->mask & (IN_DELETE_SELF | IN_MOVE_SELF))
+			{
+				// the Desktop directory itself went away: its icons go with it
+				// (the next synchronisation sees the files gone), and the watch
+				// goes back to waiting for it to be created again
+				armDesktopWatch();
+				relevant = true;
+			}
+			else if (ev->len > 0)
 			{
 				string name = ev->name;
+				if (ev->mask & IN_MOVED_FROM)
+				{
+					if (pendingMoveFrom.size() > 256)
+						pendingMoveFrom.clear(); // moves out of the directory: nothing to pair
+					pendingMoveFrom[ev->cookie] = name;
+				}
+				else if (ev->mask & IN_MOVED_TO)
+				{
+					map<unsigned int, string>::iterator f = pendingMoveFrom.find(ev->cookie);
+					if (f != pendingMoveFrom.end())
+					{
+						noteRename(watchDir + f->second, watchDir + name);
+						pendingMoveFrom.erase(f);
+					}
+				}
 				// dotfiles and ~ backups are what file managers and editors use
 				// as scratch space while saving; the final rename is what counts
 				if (!name.empty() && name[0] != '.' && name[name.size() - 1] != '~')
@@ -974,13 +1103,47 @@ void XDesktopContainer::syncDesktop()
 		shownPaths.insert(path);
 	}
 
+	// Files renamed from outside idesk-ng (a file manager, mv): the two move
+	// events shared a cookie, so the icon that is about to go and the one that is
+	// about to appear are the same one. Its place and pin are taken from the
+	// icon on screen -- not from layout.db, which may not be writable (kiosk) --
+	// and given to the new one below. An icon that keeps its place in its own
+	// file (a .lnk) needs nothing.
+	struct Carried { int x, y; bool pinned; };
+	map<string, Carried> carried;
+	for (size_t r = 0; r < renamedFiles.size(); r++)
+	{
+		const string & from = renamedFiles[r].first;
+		const string & to = renamedFiles[r].second;
+		struct stat stFrom, stTo;
+		if (shownPaths.count(to) || lstat(from.c_str(), &stFrom) == 0 ||
+		    lstat(to.c_str(), &stTo) != 0)
+			continue; // not a finished rename, or it replaced an icon that is still shown
+		for (unsigned int i = 0; i < shown.size(); i++)
+			if (shown[i].path == from &&
+			    shown[i].cfg->getOrigin() == DesktopIconConfig::ORIGIN_LAYOUT_DB)
+			{
+				Carried c = { shown[i].icon->getX(), shown[i].icon->getY(),
+				              !shown[i].cfg->isDraggable() };
+				carried[to] = c;
+			}
+	}
+	renamedFiles.clear();
+	pendingMoveFrom.clear();
+
 	// gone, or changed
 	for (unsigned int i = 0; i < shown.size(); i++)
 	{
 		struct stat st;
 		if (lstat(shown[i].path.c_str(), &st) != 0)
 		{
-			// the file is gone: icon and saved position go with it, as for Delete
+			// the file is gone: icon and saved position go with it, as for Delete.
+			// If it went to the Trash (a file manager's Delete), its place is
+			// kept so that Restore can put it back there.
+			if (shown[i].cfg->getOrigin() == DesktopIconConfig::ORIGIN_LAYOUT_DB &&
+			    isInTrash(shown[i].path))
+				rememberTrashedLayout(shown[i].path, shown[i].icon->getX(),
+				                      shown[i].icon->getY(), !shown[i].cfg->isDraggable());
 			removeXIcon(shown[i].icon);
 			dConfig->removeIconConfig(shown[i].cfg);
 			removeLayoutPosition(shown[i].path);
@@ -1038,6 +1201,19 @@ void XDesktopContainer::syncDesktop()
 			continue;
 		}
 		rejectedMtime.erase(path);
+
+		map<string, Carried>::iterator c = carried.find(path);
+		if (c != carried.end() && cfg->getOrigin() == DesktopIconConfig::ORIGIN_LAYOUT_DB)
+		{
+			// the renamed icon stays where it was, pinned if it was pinned
+			cfg->setPosition(c->second.x, c->second.y);
+			seedLayoutPosition(path, c->second.x, c->second.y);
+			if (c->second.pinned)
+			{
+				cfg->setDraggable(false);
+				setLayoutPinned(path, true, c->second.x, c->second.y);
+			}
+		}
 		dConfig->adoptIconConfig(cfg);
 
 		XIcon * icon = createXIcon(cfg);

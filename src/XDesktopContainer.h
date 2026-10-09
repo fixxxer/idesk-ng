@@ -64,7 +64,17 @@ class XDesktopContainer : public DesktopContainer
         Timer *timer;	
         // Watching ~/Desktop for files that appear, go away or are touched.
         int watchFd, watchWd;
-        string watchDir;
+        string watchDir;          // the Desktop directory, whether or not it exists yet
+        // Until the directory exists, the nearest directory above it that does is
+        // watched instead (waitWd), for the creation of waitName inside it.
+        int waitWd;
+        string waitName;
+        bool targetWatched;       // watchWd is a watch on watchDir itself
+        // A rename made outside idesk-ng arrives as two events that share a cookie
+        map<unsigned int, string> pendingMoveFrom;       // cookie -> name that left
+        vector< pair<string, string> > renamedFiles;     // (old, new) full paths
+        void armDesktopWatch();
+        void noteRename(const string & from, const string & to);
         bool syncPending;
         long long syncFirstMs, syncLastMs;
         map<string, long long> shownMtime;    // .desktop/.lnk path -> mtime (ns) when shown
