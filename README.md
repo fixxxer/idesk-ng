@@ -136,7 +136,7 @@ end
 
 - Per icon, set from the Properties dialog (or by hand):
   - **Not draggable:** `Draggable: false`. In a .lnk it goes in the file itself; for a .desktop file or a plain file/folder it goes, as the very same line, in that icon's table of `layout.db`. An icon can be dragged only if neither "Locked" nor its own `Draggable: false` says otherwise.
-  - **Tooltip off:** `X-Idesk-Tooltip-Enabled: false` in a .lnk, `X-Idesk-Tooltip-Enabled=false` in a .desktop -- the same key and value in both (the `X-` prefix is what a .desktop file requires of vendor keys, and a dot is not allowed in its key names). The tooltip text is `ToolTip.Caption:` in a .lnk and `Comment=` in a .desktop.
+  - **Tooltip off:** `X-Idesk-Tooltip-Enabled: false` in a .lnk, `X-Idesk-Tooltip-Enabled=false` in a .desktop -- the same key and value in both (the `X-` prefix is what a .desktop file requires of vendor keys, and a dot is not allowed in its key names). The tooltip text is `Comment:` in a .lnk and `Comment=` in a .desktop -- again the same word in both. (A .lnk written by an earlier version has `ToolTip.Caption:`; it is still read, and replaced by `Comment:` the next time the tooltip is saved from Properties.)
 
 - "Transparency" is between 0 (no glow effect) and 255 (invisible without a mouseover).
 
@@ -375,7 +375,7 @@ To add an icon, you need to first create a `~/.config/idesktop` directory and in
 ```
 table Icon
   Caption: Home
-  CaptionTip: This is my home
+  Comment: This is my home
   Command: nautilus /home/you
   Icon: /home/you/.config/idesktop/home.png
   Width: 600
@@ -390,7 +390,7 @@ These are the options for icon file, they should mostly be self-explantory. The 
 ```
 table Icon
   Caption: Tux
-  CaptionTip: Linux rocks
+  Comment: Linux rocks
   Icon: /home/you/icons/tux2.svg
   Width: 600
   Height: 700
@@ -399,6 +399,8 @@ table Icon
   Command[0]: echo 'Linux rocks!'
 end
 ```
+
+`Comment:` is the text of the icon's tooltip (see "ToolTip.CaptionOnHover" above); older files that say `ToolTip.Caption:` are still read.
 
 ## Default Usage
 

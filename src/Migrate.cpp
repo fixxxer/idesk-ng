@@ -23,6 +23,7 @@
 
 #include "Migrate.h"
 #include "IconLayout.h"
+#include "IconEdit.h"
 #include "Database.h"
 #include <dirent.h>
 #include <sys/stat.h>
@@ -119,7 +120,7 @@ bool runMigration()
         }
 
         string caption = table.Query("Caption");
-        string tooltip = table.Query("ToolTip.Caption");
+        string tooltip = lnkTooltipText(table);
         string icon = table.Query("Icon");
         string width = table.Query("Width");
         string height = table.Query("Height");

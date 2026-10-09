@@ -27,6 +27,8 @@
 #include <string>
 using namespace std;
 
+class Table;
+
 /*
  * The three on-disk edits behind the context menu's Rename. Pure file
  * operations with no X11 involved, so they can be tested headlessly.
@@ -65,6 +67,15 @@ bool setDesktopKey(const string & path, const string & key,
 bool getDesktopKey(const string & path, const string & key, string & value);
 bool getLnkKey(const string & path, const string & key, string & value,
                bool & isArray);
+
+// The tooltip text of a .lnk: `Comment:` (the same word a .desktop uses),
+// or, when that is empty or absent, the `ToolTip.Caption:` the first versions
+// wrote. lnkTooltipText() reads it from a table already loaded;
+// getLnkTooltip() from the file (false if it can't be read as an icon).
+// Writing a tooltip with setLnkKey(path, "Comment", ...) also drops the old
+// ToolTip.Caption key, so that clearing the text does not bring the old one back.
+string lnkTooltipText(Table & table);
+bool getLnkTooltip(const string & path, string & value);
 
 // Renames a plain file or folder on disk (through GIO, which also
 // rejects invalid names and refuses to overwrite an existing file).

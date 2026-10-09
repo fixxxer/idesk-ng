@@ -149,6 +149,24 @@ int main()
     c = slurp("/tmp/ietest/k.lnk");
     CHECK(ok && has(c, "ToolTip.Caption: Un tip") && has(c, "Caption: C"), "tooltip: .lnk text written, caption intact");
 
+    // 13. .lnk tooltip text: Comment:, with the old ToolTip.Caption: still read
+    put("/tmp/ietest/t1.lnk", "table Icon\n  Caption: T\n  Command: true\n  ToolTip.Caption: Viejo\nend\n");
+    CHECK(getLnkTooltip("/tmp/ietest/t1.lnk", v) && v == "Viejo", "comment: old ToolTip.Caption still read");
+    put("/tmp/ietest/t2.lnk", "table Icon\n  Caption: T\n  Command: true\n  Comment: Nuevo\nend\n");
+    CHECK(getLnkTooltip("/tmp/ietest/t2.lnk", v) && v == "Nuevo", "comment: Comment: read");
+    put("/tmp/ietest/t3.lnk", "table Icon\n  Caption: T\n  Command: true\n  Comment: Gana\n  ToolTip.Caption: Pierde\nend\n");
+    CHECK(getLnkTooltip("/tmp/ietest/t3.lnk", v) && v == "Gana", "comment: Comment: wins over the old key");
+    ok = setLnkKey("/tmp/ietest/t1.lnk", "Comment", "Editado \xC3\xB1", err);
+    c = slurp("/tmp/ietest/t1.lnk");
+    CHECK(ok && has(c, "Comment: Editado \xC3\xB1") && !has(c, "ToolTip.Caption") && !has(c, "Viejo"),
+          "comment: writing Comment: drops the old ToolTip.Caption");
+    CHECK(has(c, "Caption: T") && has(c, "Command: true"), "comment: other keys intact");
+    ok = setLnkKey("/tmp/ietest/t1.lnk", "Comment", "", err);
+    CHECK(ok && getLnkTooltip("/tmp/ietest/t1.lnk", v) && v.empty(), "comment: clearing the text does not bring the old one back");
+    put("/tmp/ietest/t4.lnk", "table Icon\n  Caption: T\n  Command: true\nend\n");
+    CHECK(getLnkTooltip("/tmp/ietest/t4.lnk", v) && v.empty(), "comment: no tooltip at all reads as empty");
+    CHECK(!getLnkTooltip("/tmp/ietest/nope.lnk", v), "comment: unreadable file reported");
+
     cout << (fails == 0 ? "ALL PASSED" : "SOME FAILED") << " (" << fails << " failures)\n";
     return fails;
 }

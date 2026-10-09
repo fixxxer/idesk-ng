@@ -1340,7 +1340,7 @@ void XDesktopContainer::propertiesIcon(XIcon * icon)
 			{
 				bool a;
 				getLnkKey(path, "Icon", img, a);
-				getLnkKey(path, "ToolTip.Caption", tip, a);
+				getLnkTooltip(path, tip);
 				getLnkKey(path, "X-Idesk-Tooltip-Enabled", tipOn, a);
 				if (tipOn.empty())
 					getLnkKey(path, "ToolTip.Enabled", tipOn, a); // first version
@@ -1488,7 +1488,7 @@ void XDesktopContainer::propertiesIcon(XIcon * icon)
 	Edit e1 = { isLnk ? "Caption" : "Name", newName, oldName, nameChanged };
 	Edit e2 = { isLnk ? "Command" : "Exec", newCmd, oldCmd, cmdChanged };
 	Edit e3 = { "Icon", newImg, oldImg, imgChanged };
-	Edit e4 = { isLnk ? "ToolTip.Caption" : "Comment", newTip, oldTip, tipChanged };
+	Edit e4 = { "Comment", newTip, oldTip, tipChanged }; // the same key in a .lnk and a .desktop
 	Edit e5 = { "X-Idesk-Tooltip-Enabled",
 	            newTipOn == "1" ? "true" : "false",
 	            oldTipOn == "1" ? "true" : "false", tipOnChanged };

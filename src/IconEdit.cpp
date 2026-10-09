@@ -73,7 +73,41 @@ bool setLnkKey(const string & path, const string & key, const string & value,
     }
 
     table.Set(key, value);
+    if (key == "Comment")
+    {
+        // the tooltip's old name: left behind it would reappear as soon as the
+        // new text is cleared (lnkTooltipText() falls back to it when empty)
+        for (size_t i = 0; i < table.Label.size(); )
+            if (table.Label[i] == "ToolTip.Caption")
+            {
+                table.Label.erase(table.Label.begin() + i);
+                table.Value.erase(table.Value.begin() + i);
+            }
+            else
+                i++;
+    }
     db.Write();
+    return true;
+}
+
+string lnkTooltipText(Table & table)
+{
+    string v = table.Query("Comment");
+    if (v.empty())
+        v = table.Query("ToolTip.Caption"); // the first versions' name
+    return v;
+}
+
+bool getLnkTooltip(const string & path, string & value)
+{
+    value.clear();
+    if (access(path.c_str(), R_OK) != 0)
+        return false;
+    Database db(path, false);
+    Table & table = db.Query("Icon");
+    if (!table.isValid())
+        return false;
+    value = lnkTooltipText(table);
     return true;
 }
 

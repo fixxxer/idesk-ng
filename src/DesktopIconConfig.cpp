@@ -25,6 +25,7 @@
 
 #include "DesktopIconConfig.h"
 #include "IconLayout.h"
+#include "IconEdit.h"
 
 DesktopIconConfig::DesktopIconConfig(const string & fName, Table &table, CommonOptions * parentData)
 {
@@ -62,7 +63,7 @@ void DesktopIconConfig::setIconOptions(Table table)
     pictureFilename = table.Query("Icon");
     picExtension = getExtension(pictureFilename);
     caption = table.Query("Caption");
-    captionTip = table.Query("ToolTip.Caption");
+    captionTip = lnkTooltipText(table); // Comment:, or the older ToolTip.Caption:
     x = atoi(table.Query("X").c_str());
     y = atoi(table.Query("Y").c_str());
     width = atoi(table.Query("Width").c_str());
